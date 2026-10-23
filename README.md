@@ -3,7 +3,7 @@
 Aplicación web para cargar documentos PDF y hacerles preguntas en lenguaje natural mediante RAG
 (Retrieval-Augmented Generation), con respuestas que citan el documento y la página de origen.
 
-> **Estado:** Fase 5 (respuestas RAG con LLM). Proyecto de portafolio / aprendizaje; **no** es un servicio
+> **Estado:** Fase 6 (frontend). El flujo principal funciona de punta a punta desde el navegador. Proyecto de portafolio / aprendizaje; **no** es un servicio
 > listo para producción ni para exponerse a Internet (no tiene autenticación ni rate limiting).
 
 La especificación completa está en
@@ -31,6 +31,14 @@ La especificación completa está en
 │   ├── alembic.ini
 │   ├── pyproject.toml      # dependencias y configuración de herramientas
 │   └── uv.lock             # versiones exactas, para instalaciones reproducibles
+├── frontend/               # React + TypeScript + Vite
+│   ├── src/
+│   │   ├── api/client.ts   # cliente HTTP tipado (único lugar que conoce la API)
+│   │   ├── types/api.ts    # tipos de las respuestas (reflejan los esquemas del backend)
+│   │   ├── pages/          # Biblioteca, Preguntar, Detalle de documento
+│   │   ├── components/     # subida de archivos, etiqueta de estado
+│   │   └── router.ts       # navegación mínima por hash (#/biblioteca, #/preguntar…)
+│   └── vite.config.ts      # proxy /api -> backend en desarrollo; configuración de Vitest
 ├── docs/
 │   ├── rag-best-practices.md   # buenas prácticas de RAG y su estado en el proyecto
 │   └── decisions/              # registro de decisiones técnicas (ADR)
@@ -41,7 +49,7 @@ La especificación completa está en
 └── README.md
 ```
 
-El frontend (React + TypeScript) se añadirá en la Fase 6. Las buenas prácticas aplicadas y pendientes están en
+Las buenas prácticas aplicadas y pendientes están en
 [`docs/rag-best-practices.md`](docs/rag-best-practices.md).
 
 ## Requisitos
@@ -54,6 +62,7 @@ El frontend (React + TypeScript) se añadirá en la Fase 6. Las buenas práctica
 
   No hace falta tener Python 3.12 instalado: `uv` lo descarga automáticamente.
 
+- [Node.js](https://nodejs.org/) 20 o superior (con npm), para el frontend.
 - Docker con Docker Compose. En Windows + WSL: Docker Desktop con la integración WSL activada
   (Settings → Resources → WSL Integration).
 
@@ -69,6 +78,20 @@ uv sync                       # crea .venv e instala dependencias desde uv.lock
 uv run alembic upgrade head   # crea/actualiza las tablas
 uv run uvicorn app.main:app --reload
 ```
+
+En otra terminal, el frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev                   # http://localhost:5173
+```
+
+Abre **<http://localhost:5173>**: sube un PDF en «Biblioteca» y pregunta en «Preguntar». En
+desarrollo, Vite reenvía las peticiones `/api` al backend (puerto 8000), así que no hace falta
+configurar CORS.
+
+Backend directamente:
 
 - Health check: <http://localhost:8000/health>
 - Documentación interactiva (Swagger UI): <http://localhost:8000/docs>
@@ -207,6 +230,8 @@ Revisa siempre el archivo generado por `--autogenerate` antes de aplicarlo.
 
 ## Pruebas, formato y lint
 
+### Backend
+
 Desde `backend/`:
 
 ```bash
@@ -227,7 +252,39 @@ uv run pip-audit -r /tmp/req.txt --disable-pip
 Las pruebas de integración necesitan `docker compose up -d db`. Si PostgreSQL no está disponible
 se marcan como **SKIPPED** con el motivo (usa `pytest -rs` para verlo); no cuentan como pasadas.
 
+### Frontend
+
+Desde `frontend/`:
+
+```bash
+npm test                    # pruebas de componentes (Vitest + Testing Library, sin backend)
+npm run typecheck           # TypeScript estricto
+npm run lint                # oxlint
+npm run build               # compilación de producción en dist/
+```
+
+Las pruebas simulan `fetch`, así que no necesitan el backend. Incluyen una prueba de seguridad:
+una respuesta del LLM con HTML malicioso (`<img onerror>`, `<script>`, imágenes Markdown) debe
+mostrarse como texto inerte.
+
+## Frontend
+
+- **Biblioteca:** subida por clic o arrastrando (con validación previa de tipo y tamaño), lista
+  con tamaño, fecha y estado, error de los documentos fallidos, reintentar y eliminar.
+- **Preguntar:** respuesta con fuentes (documento, página y extracto) enlazadas al detalle del
+  documento, y aviso explícito cuando no hay evidencia suficiente.
+- **Estados** de carga, vacío, error y éxito en todas las pantallas; errores comprensibles, sin
+  trazas ni detalles internos.
+- **Accesibilidad básica:** etiquetas en los controles, navegación por teclado, foco visible,
+  anuncios `aria-live` de los cambios de estado, estado comunicado con texto (no solo color) y
+  contraste en modo claro y oscuro.
+- **Seguridad:** la respuesta del LLM se muestra como texto plano. Nunca se usa
+  `dangerouslySetInnerHTML` ni se interpreta Markdown, porque un documento malicioso podría
+  inducir al LLM a devolver HTML o enlaces que ejecuten código o filtren datos.
+
 ## Dependencias
+
+### Backend
 
 | Paquete           | Tipo | Propósito                                                   |
 |-------------------|------|-------------------------------------------------------------|
@@ -245,3 +302,14 @@ se marcan como **SKIPPED** con el motivo (usa `pytest -rs` para verlo); no cuent
 | httpx             | dev  | Cliente HTTP de pruebas (Starlette usa ya `httpx2`, que trae `openai`) |
 | ruff              | dev  | Formateador y linter                                        |
 | pip-audit         | dev  | Busca vulnerabilidades conocidas en las dependencias        |
+
+### Frontend
+
+| Paquete | Tipo | Propósito |
+|---|---|---|
+| react, react-dom | app | Interfaz de usuario |
+| vite, @vitejs/plugin-react | dev | Servidor de desarrollo, proxy a la API y compilación |
+| typescript | dev | Tipado estático (modo estricto) |
+| oxlint | dev | Linter (incluido en la plantilla oficial de Vite) |
+| vitest, jsdom | dev | Ejecutor de pruebas y DOM simulado |
+| @testing-library/react, user-event, jest-dom | dev | Probar componentes como los usaría una persona |

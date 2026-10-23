@@ -1,9 +1,15 @@
-# Dependabot revisa cada semana las dependencias de Python (uv.lock) y abre pull requests
+# Dependabot revisa cada semana las dependencias de Python (uv.lock) y del frontend
+# (package-lock.json) y abre pull requests
 # cuando hay versiones nuevas o parches de seguridad.
 version: 2
 updates:
   - package-ecosystem: "uv"
     directory: "/backend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+  - package-ecosystem: "npm"
+    directory: "/frontend"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5

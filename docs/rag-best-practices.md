@@ -50,7 +50,8 @@ persona que despliega · 💼 solo necesario si el proyecto pasa a ser un SaaS m
 | Práctica | Estado | Dónde / por qué |
 |---|---|---|
 | **Prompt injection indirecta** (riesgo nº 1, OWASP LLM Top 10): el LLM no tiene herramientas, no ve secretos ni decide permisos | ✅ | Fase 5. Las defensas son de diseño, no de redacción del prompt. Prueba real opcional en `tests/external/test_openai_llm.py` |
-| La salida del LLM se renderiza como texto, no HTML (XSS, exfiltración por enlaces/imágenes markdown) | 🔜 | Fase 6 |
+| La salida del LLM se renderiza como texto, no HTML (XSS, exfiltración por enlaces/imágenes markdown) | ✅ | `frontend/src/pages/AskPage.tsx`, sin `dangerouslySetInnerHTML` ni Markdown; prueba con HTML malicioso en `AskPage.test.tsx` |
+| Errores comprensibles en la interfaz, sin trazas ni detalles internos | ✅ | `frontend/src/api/client.ts` |
 | Límite de longitud de las preguntas | ✅ | Fase 4, `MAX_QUERY_CHARS` |
 | Secretos solo en `.env` (ignorado por Git) o gestor de secretos; nunca en logs ni frontend | ✅ | `.gitignore`, `.env.example` |
 | Límite de gasto mensual en el panel del proveedor | 👤 | Configuración manual en platform.openai.com |
