@@ -6,6 +6,7 @@ un worker (SQS) sin cambiar nada: solo necesita el id del documento.
 
 import hashlib
 import logging
+import time
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from uuid import UUID
@@ -17,6 +18,7 @@ from app.models.document import Document
 from app.repositories.documents import DocumentRepository
 from app.schemas.document import DocumentStatus
 from app.services.chunking import chunk_pages
+from app.services.embeddings import EmbeddingError, EmbeddingProvider
 from app.services.pdf_extraction import (
     InvalidPdfError,
     extract_pages,
@@ -89,9 +91,13 @@ def register_upload(
 
 
 def process_document(
-    session: Session, storage: LocalFileStorage, settings: Settings, document_id: UUID
+    session: Session,
+    storage: LocalFileStorage,
+    embedder: EmbeddingProvider,
+    settings: Settings,
+    document_id: UUID,
 ) -> Document:
-    """Extrae, fragmenta y guarda el texto. Deja el documento en `completed` o `failed`.
+    """Extrae, fragmenta, genera embeddings y guarda. Deja el documento `completed` o `failed`.
 
     Los fragmentos y el estado `completed` se confirman en una sola transacción: si algo
     falla, no quedan fragmentos parciales de un documento que no está completo.
@@ -113,18 +119,34 @@ def process_document(
                 "El PDF no contiene texto extraíble. Los PDF escaneados (imágenes) "
                 "no están soportados todavía.",
             )
-        repository.replace_chunks(document.id, chunks)
+        # Se piden los embeddings ANTES de escribir en la base: si el proveedor falla, no
+        # se ha tocado nada y los fragmentos anteriores (si los había) siguen intactos.
+        started = time.perf_counter()
+        embeddings = embedder.embed_documents([chunk.text for chunk in chunks])
+        embedding_ms = (time.perf_counter() - started) * 1000
+        repository.replace_chunks(document.id, chunks, embeddings, embedder.model_name)
         document.status = DocumentStatus.COMPLETED
         document.error_code = None
         document.error_message = None
         document.processed_at = datetime.now(UTC)
         session.commit()
-        logger.info("Documento %s procesado: %d fragmentos", document.id, len(chunks))
+        logger.info(
+            "Documento %s procesado: %d fragmentos, embeddings %s en %.0f ms",
+            document.id,
+            len(chunks),
+            embedder.model_name,
+            embedding_ms,
+        )
     except Exception as exc:
         session.rollback()
         if isinstance(exc, InvalidPdfError):
             code, message = exc.code, exc.message
             logger.warning("Documento %s no procesable: %s", document_id, code)
+        elif isinstance(exc, EmbeddingError):
+            code, message = "embedding_error", exc.message
+            logger.warning(
+                "Documento %s: fallo del proveedor de embeddings", document_id, exc_info=exc
+            )
         else:
             # El detalle técnico va al log; al usuario solo un mensaje genérico y seguro.
             code, message = "processing_error", "Error inesperado al procesar el documento."
@@ -135,3 +157,20 @@ def process_document(
         session.commit()
 
     return document
+
+
+def delete_document(session: Session, storage: LocalFileStorage, document: Document) -> None:
+    """Borra el documento, sus fragmentos y embeddings (en cascada) y el archivo en disco.
+
+    Primero la base de datos y después el archivo: si el borrado del archivo fallara,
+    quedaría un archivo huérfano (inofensivo y detectable), nunca un registro apuntando
+    a un archivo inexistente.
+    """
+    storage_key = document.storage_key
+    DocumentRepository(session).delete(document)
+    session.commit()
+    try:
+        storage.delete(storage_key)
+    except OSError:
+        logger.exception("No se pudo borrar el archivo del documento %s", document.id)
+    logger.info("Documento %s eliminado", document.id)

@@ -8,15 +8,18 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
+from app.models.document import Document
 from app.repositories.documents import DocumentRepository, get_document_repository
 from app.schemas.document import DocumentPage, DocumentRead
 from app.services import ingestion
+from app.services.embeddings import EmbeddingProvider, get_embedding_provider
 from app.services.pdf_extraction import InvalidPdfError
 from app.services.storage import LocalFileStorage, get_storage
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 
 Repository = Annotated[DocumentRepository, Depends(get_document_repository)]
+Embedder = Annotated[EmbeddingProvider, Depends(get_embedding_provider)]
 
 MAX_PAGE_SIZE = 100
 
@@ -30,15 +33,17 @@ MAX_PAGE_SIZE = 100
         413: {"description": "El archivo supera el tamaño máximo"},
         415: {"description": "El archivo no es un PDF"},
         422: {"description": "PDF dañado, cifrado, sin páginas o con demasiadas páginas"},
+        503: {"description": "Proveedor de embeddings no configurado"},
     },
 )
 def upload_document(
     file: UploadFile,
     session: Annotated[Session, Depends(get_db)],
     storage: Annotated[LocalFileStorage, Depends(get_storage)],
+    embedder: Embedder,
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> DocumentRead:
-    """Sube un PDF y lo procesa (extracción + fragmentación).
+    """Sube un PDF y lo procesa (extracción, fragmentación y embeddings).
 
     Devuelve 201 aunque el procesamiento falle (p. ej. PDF sin texto): el documento queda
     registrado con `status = "failed"` y un `error_message` explicativo.
@@ -65,7 +70,7 @@ def upload_document(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.message) from None
 
     # Procesamiento síncrono en el MVP; en la Fase 8 esto será un mensaje a una cola.
-    document = ingestion.process_document(session, storage, settings, document.id)
+    document = ingestion.process_document(session, storage, embedder, settings, document.id)
     return DocumentRead.model_validate(document)
 
 
@@ -88,7 +93,48 @@ def list_documents(
 )
 def get_document(document_id: UUID, repository: Repository) -> DocumentRead:
     """Devuelve los metadatos y el estado de un documento."""
+    return DocumentRead.model_validate(_get_or_404(repository, document_id))
+
+
+@router.delete(
+    "/{document_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={404: {"description": "Documento no encontrado"}},
+)
+def delete_document(
+    document_id: UUID,
+    repository: Repository,
+    session: Annotated[Session, Depends(get_db)],
+    storage: Annotated[LocalFileStorage, Depends(get_storage)],
+) -> None:
+    """Elimina el documento, sus fragmentos y embeddings, y el archivo almacenado."""
+    ingestion.delete_document(session, storage, _get_or_404(repository, document_id))
+
+
+@router.post(
+    "/{document_id}/reprocess",
+    response_model=DocumentRead,
+    responses={
+        404: {"description": "Documento no encontrado"},
+        503: {"description": "Proveedor de embeddings no configurado"},
+    },
+)
+def reprocess_document(
+    document_id: UUID,
+    repository: Repository,
+    session: Annotated[Session, Depends(get_db)],
+    storage: Annotated[LocalFileStorage, Depends(get_storage)],
+    embedder: Embedder,
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> DocumentRead:
+    """Vuelve a procesar un documento: tras un fallo, o tras cambiar de modelo de embeddings."""
+    document = _get_or_404(repository, document_id)
+    document = ingestion.process_document(session, storage, embedder, settings, document.id)
+    return DocumentRead.model_validate(document)
+
+
+def _get_or_404(repository: DocumentRepository, document_id: UUID) -> Document:
     document = repository.get(document_id)
     if document is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-    return DocumentRead.model_validate(document)
+    return document

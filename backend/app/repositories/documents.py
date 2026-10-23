@@ -61,9 +61,22 @@ class DocumentRepository:
     def get(self, document_id: UUID) -> Document | None:
         return self._session.get(Document, document_id)
 
-    def replace_chunks(self, document_id: UUID, chunks: Sequence[TextChunk]) -> None:
+    def delete(self, document: Document) -> None:
+        """Borra el documento; PostgreSQL borra sus fragmentos (ON DELETE CASCADE).
+        NO confirma: quien llama decide cuándo, p. ej. antes de borrar el archivo."""
+        self._session.delete(document)
+
+    def replace_chunks(
+        self,
+        document_id: UUID,
+        chunks: Sequence[TextChunk],
+        embeddings: Sequence[list[float]],
+        embedding_model: str,
+    ) -> None:
         """Sustituye los fragmentos de un documento. NO confirma: lo hace quien llama,
         para que el cambio de fragmentos y de estado ocurran en la misma transacción."""
+        if len(chunks) != len(embeddings):
+            raise ValueError("Cada fragmento necesita exactamente un embedding")
         self._session.execute(delete(DocumentChunk).where(DocumentChunk.document_id == document_id))
         self._session.add_all(
             DocumentChunk(
@@ -71,8 +84,10 @@ class DocumentRepository:
                 chunk_index=chunk.chunk_index,
                 page_number=chunk.page_number,
                 text=chunk.text,
+                embedding=embedding,
+                embedding_model=embedding_model,
             )
-            for chunk in chunks
+            for chunk, embedding in zip(chunks, embeddings, strict=True)
         )
 
     def list_chunks(self, document_id: UUID) -> list[DocumentChunk]:

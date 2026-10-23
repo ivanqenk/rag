@@ -3,7 +3,7 @@
 Aplicación web para cargar documentos PDF y hacerles preguntas en lenguaje natural mediante RAG
 (Retrieval-Augmented Generation), con respuestas que citan el documento y la página de origen.
 
-> **Estado:** Fase 3 (ingestión de PDF). Proyecto de portafolio / aprendizaje; **no** es un servicio
+> **Estado:** Fase 4 (embeddings y búsqueda híbrida). Proyecto de portafolio / aprendizaje; **no** es un servicio
 > listo para producción ni para exponerse a Internet (no tiene autenticación ni rate limiting).
 
 La especificación completa está en
@@ -22,22 +22,28 @@ La especificación completa está en
 │   │   ├── models/         # modelos ORM (tablas)
 │   │   ├── schemas/        # modelos Pydantic de entrada/salida de la API
 │   │   ├── repositories/   # consultas a la base de datos
-│   │   └── services/       # lógica: almacenamiento, extracción PDF, fragmentación, ingestión
+│   │   └── services/       # lógica: almacenamiento, PDF, fragmentación, embeddings, búsqueda
 │   ├── migrations/         # migraciones Alembic (historial versionado del esquema)
 │   ├── tests/
 │   │   ├── unit/           # rápidas, sin base de datos
-│   │   └── integration/    # contra PostgreSQL real (base docintel_test)
+│   │   ├── integration/    # contra PostgreSQL real (base docintel_test)
+│   │   └── external/       # contra APIs de pago; solo con `pytest -m openai`
 │   ├── alembic.ini
 │   ├── pyproject.toml      # dependencias y configuración de herramientas
 │   └── uv.lock             # versiones exactas, para instalaciones reproducibles
+├── docs/
+│   ├── rag-best-practices.md   # buenas prácticas de RAG y su estado en el proyecto
+│   └── decisions/              # registro de decisiones técnicas (ADR)
+├── .github/dependabot.yml  # actualizaciones automáticas de dependencias
 ├── docker/postgres/init/   # SQL que se ejecuta al crear el volumen de PostgreSQL
 ├── docker-compose.yml      # PostgreSQL 17 + pgvector para desarrollo
 ├── .env.example
 └── README.md
 ```
 
-Los embeddings (pgvector), las consultas RAG y el frontend (React + TypeScript) se añadirán en
-fases posteriores.
+Las respuestas generadas por un LLM (RAG completo) y el frontend (React + TypeScript) se
+añadirán en fases posteriores. Las buenas prácticas aplicadas y pendientes están en
+[`docs/rag-best-practices.md`](docs/rag-best-practices.md).
 
 ## Requisitos
 
@@ -57,7 +63,7 @@ fases posteriores.
 Desde la raíz del repositorio:
 
 ```bash
-cp .env.example .env
+cp .env.example .env          # y escribe tu OPENAI_API_KEY (o usa EMBEDDINGS_PROVIDER=fake)
 docker compose up -d db       # arranca PostgreSQL (espera a que esté "healthy")
 cd backend
 uv sync                       # crea .venv e instala dependencias desde uv.lock
@@ -80,6 +86,9 @@ Para borrarlos por completo: `docker compose down -v`.
 | POST   | `/api/v1/documents`             | Sube un PDF (`multipart/form-data`, campo `file`) y lo procesa |
 | GET    | `/api/v1/documents`             | Lista paginada (`limit` 1–100, por defecto 20; `offset` ≥ 0), más recientes primero |
 | GET    | `/api/v1/documents/{id}`        | Metadatos y estado de un documento (`404` si no existe, `422` si el id no es UUID) |
+| DELETE | `/api/v1/documents/{id}`        | Borra el documento, sus fragmentos, embeddings y el archivo (`204`) |
+| POST   | `/api/v1/documents/{id}/reprocess` | Vuelve a procesar (tras un fallo o un cambio de modelo de embeddings) |
+| POST   | `/api/v1/search`                | Búsqueda híbrida de fragmentos (sin LLM todavía)        |
 
 ### Subir un PDF
 
@@ -95,6 +104,7 @@ curl -F "file=@/ruta/a/manual.pdf" http://localhost:8000/api/v1/documents
 | `413` | Supera `MAX_UPLOAD_SIZE_MB` (20 MB por defecto) |
 | `415` | No es un PDF (se comprueba la extensión **y** la firma `%PDF-` del contenido; el `Content-Type` del cliente se ignora) |
 | `422` | PDF dañado, protegido con contraseña, sin páginas o con más de `MAX_PDF_PAGES` |
+| `503` | El proveedor de embeddings no está configurado (falta `OPENAI_API_KEY`) |
 
 Cuando la subida se rechaza (4xx) no se guarda nada. El procesamiento es síncrono en el MVP:
 la respuesta llega cuando el documento ya está `completed` o `failed`.
@@ -107,10 +117,44 @@ la respuesta llega cuando el documento ya está `completed` o `failed`.
 3. El texto se divide en fragmentos de hasta `CHUNK_SIZE` caracteres (1000) con `CHUNK_OVERLAP`
    caracteres de solapamiento (200). Cada fragmento pertenece a una sola página, para poder
    citarla.
-4. Los fragmentos y el estado `completed` se guardan en **una sola transacción**: si algo falla,
-   el documento queda `failed` y sin fragmentos parciales.
+4. Se generan los embeddings de los fragmentos por lotes (`EMBEDDING_BATCH_SIZE`), con timeout y
+   reintentos con backoff. Si el proveedor falla, el documento queda `failed` con
+   `error_code: "embedding_error"` y se puede reprocesar.
+5. Los fragmentos, sus embeddings, el modelo que los generó (`embedding_model`) y el estado
+   `completed` se guardan en **una sola transacción**: si algo falla, no quedan datos parciales.
 
 Los archivos de documentos `failed` se conservan en disco para poder reprocesarlos más adelante.
+
+### Buscar
+
+```bash
+curl -X POST http://localhost:8000/api/v1/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "¿cuántos días de vacaciones tengo?", "top_k": 5}'
+```
+
+La búsqueda es **híbrida**: combina la similitud de significado (embeddings + pgvector, búsqueda
+exacta) con la búsqueda por palabras de PostgreSQL (`tsvector`), útil para nombres propios,
+códigos y números exactos. Las dos listas se fusionan con Reciprocal Rank Fusion.
+
+- Solo se consideran documentos `completed` y vectores del modelo de embeddings activo.
+- Los resultados vectoriales deben superar `RETRIEVAL_MIN_SCORE`. Si nada es relevante, la
+  respuesta es `{"results": [], "insufficient_evidence": true}`.
+- `top_k` está limitado por `RETRIEVAL_MAX_TOP_K` y la consulta por `MAX_QUERY_CHARS` (`422`).
+- La respuesta nunca incluye los vectores. Los logs registran conteos, similitudes y tiempos,
+  nunca el texto de la pregunta ni de los documentos.
+
+### Embeddings
+
+Proveedor: OpenAI `text-embedding-3-small` (1536 dimensiones). Costo estimado: ~$0.11 por cada
+100 PDF de 50 páginas. Motivos, alternativas y privacidad en
+[`docs/decisions/0001-proveedor-embeddings.md`](docs/decisions/0001-proveedor-embeddings.md).
+
+- **Configura un límite de gasto** en platform.openai.com antes de usar tu clave.
+- Para probar sin clave ni costo: `EMBEDDINGS_PROVIDER=fake` en `.env` (embeddings locales y
+  deterministas; no entienden sinónimos, solo palabras compartidas).
+- Si cambias de modelo, reprocesa los documentos: los vectores de modelos distintos no son
+  comparables y la búsqueda ignora los del modelo anterior.
 
 ## Migraciones
 
@@ -129,10 +173,18 @@ Revisa siempre el archivo generado por `--autogenerate` antes de aplicarlo.
 Desde `backend/`:
 
 ```bash
-uv run pytest               # todas las pruebas
+uv run pytest               # todas las pruebas (nunca llaman a APIs de pago)
 uv run pytest tests/unit    # solo unitarias (no necesitan PostgreSQL)
+uv run pytest -m openai -s  # prueba opcional contra OpenAI real (cuesta fracciones de centavo)
 uv run ruff format .        # formatea el código
 uv run ruff check .         # lint
+```
+
+Auditoría de vulnerabilidades en las dependencias (además de Dependabot en GitHub):
+
+```bash
+uv export --no-emit-project --format requirements-txt -o /tmp/req.txt
+uv run pip-audit -r /tmp/req.txt --disable-pip
 ```
 
 Las pruebas de integración necesitan `docker compose up -d db`. Si PostgreSQL no está disponible
@@ -150,6 +202,9 @@ se marcan como **SKIPPED** con el motivo (usa `pytest -rs` para verlo); no cuent
 | pydantic-settings | app  | Lee la configuración desde variables de entorno y `.env`    |
 | python-multipart  | app  | Permite a FastAPI recibir archivos (`multipart/form-data`)  |
 | pymupdf (1.x)     | app  | Valida PDF y extrae su texto por página. Fijado a `<2`: la 2.0 añade ~100 MB de dependencias de análisis de layout (onnxruntime, numpy) que no necesitamos |
+| openai            | app  | SDK oficial de OpenAI: embeddings con timeout y reintentos  |
+| pgvector          | app  | Tipo `Vector` de SQLAlchemy y operadores de distancia       |
 | pytest            | dev  | Ejecutor de pruebas                                         |
-| httpx             | dev  | Cliente HTTP que usa `TestClient` de FastAPI en las pruebas |
+| httpx             | dev  | Cliente HTTP de pruebas (Starlette usa ya `httpx2`, que trae `openai`) |
 | ruff              | dev  | Formateador y linter                                        |
+| pip-audit         | dev  | Busca vulnerabilidades conocidas en las dependencias        |

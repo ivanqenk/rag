@@ -16,8 +16,10 @@ from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from app.core.config import Settings, get_settings
 from app.db.session import get_db
 from app.main import app
+from app.services.embeddings import FakeEmbeddingProvider, get_embedding_provider
 
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
@@ -59,11 +61,40 @@ def db_session(engine: Engine) -> Iterator[Session]:
 
 
 @pytest.fixture
-def client(engine: Engine, db_session: Session) -> Iterator[TestClient]:
+def storage_dir(tmp_path: Path) -> Path:
+    return tmp_path / "storage"
+
+
+@pytest.fixture
+def settings(storage_dir: Path) -> Settings:
+    return Settings(
+        storage_dir=storage_dir,
+        max_upload_size_mb=1,
+        chunk_size=500,
+        chunk_overlap=100,
+        embeddings_provider="fake",
+        # Calibrado para el proveedor falso con los textos de test_search.py: las consultas
+        # relevantes dan >= 0.27 y las colisiones de hash entre palabras distintas <= 0.15.
+        retrieval_min_score=0.2,
+    )
+
+
+@pytest.fixture
+def embedder() -> FakeEmbeddingProvider:
+    return FakeEmbeddingProvider()
+
+
+@pytest.fixture
+def client(
+    engine: Engine, db_session: Session, settings: Settings, embedder: FakeEmbeddingProvider
+) -> Iterator[TestClient]:
     def override_get_db() -> Iterator[Session]:
         with Session(engine, expire_on_commit=False) as session:
             yield session
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_settings] = lambda: settings
+    # Nunca llamar a un proveedor real (de pago) desde la suite, aunque .env tenga una clave.
+    app.dependency_overrides[get_embedding_provider] = lambda: embedder
     yield TestClient(app)
     app.dependency_overrides.clear()

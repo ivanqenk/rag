@@ -6,6 +6,8 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "alembic>=1.20.1",
     "fastapi>=0.161.1",
+    "openai>=3.37.0",
+    "pgvector>=0.5.1",
     "psycopg[binary]>=3.3.6",
     "pydantic-settings>=2.16.1",
     "pymupdf>=1.28.2,<2",
@@ -17,6 +19,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
+    "pip-audit>=2.10.1",
     "pytest>=9.1.1",
     "ruff>=0.17.2",
 ]
@@ -25,6 +28,10 @@ dev = [
 testpaths = ["tests"]
 # Permite `from app.main import app` en las pruebas sin instalar el paquete.
 pythonpath = ["."]
+markers = ["openai: llama a la API real de OpenAI (cuesta dinero); ejecutar con -m openai"]
+# Por defecto nunca se ejecutan pruebas de pago. `-m openai` en la línea de comandos
+# sustituye a este filtro.
+addopts = "-m 'not openai'"
 
 [tool.ruff]
 line-length = 100

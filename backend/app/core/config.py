@@ -2,8 +2,9 @@
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # El .env vive en la raíz del repositorio (un nivel por encima de backend/).
@@ -14,6 +15,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=REPO_ROOT / ".env", extra="ignore")
 
     app_env: str = "development"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     # Valor por defecto solo para desarrollo local con docker-compose.yml.
     database_url: str = "postgresql+psycopg://docintel:docintel@localhost:5432/docintel"
 
@@ -27,10 +29,30 @@ class Settings(BaseSettings):
     chunk_size: int = Field(default=1000, ge=100)
     chunk_overlap: int = Field(default=200, ge=0)
 
+    # Embeddings. "fake" es un proveedor local determinista para pruebas y desarrollo sin clave.
+    embeddings_provider: Literal["openai", "fake"] = "openai"
+    # SecretStr evita que la clave aparezca si se imprime o se registra la configuración.
+    openai_api_key: SecretStr | None = None
+    embedding_model: str = "text-embedding-3-small"
+    embedding_batch_size: int = Field(default=100, ge=1, le=2048)
+    embedding_timeout_seconds: float = Field(default=30, gt=0)
+    # El SDK de OpenAI reintenta con backoff exponencial ante 429, 5xx y timeouts.
+    embedding_max_retries: int = Field(default=3, ge=0, le=10)
+
+    # Búsqueda.
+    max_query_chars: int = Field(default=1000, ge=10)
+    retrieval_top_k: int = Field(default=5, ge=1)
+    retrieval_max_top_k: int = Field(default=20, ge=1)
+    # Similitud coseno mínima para aceptar un resultado vectorial (0-1). Valor inicial a
+    # calibrar con el conjunto de evaluación (Fase 7).
+    retrieval_min_score: float = Field(default=0.25, ge=0, le=1)
+
     @model_validator(mode="after")
     def _overlap_smaller_than_chunk(self) -> "Settings":
         if self.chunk_overlap >= self.chunk_size:
             raise ValueError("CHUNK_OVERLAP debe ser menor que CHUNK_SIZE")
+        if self.retrieval_top_k > self.retrieval_max_top_k:
+            raise ValueError("RETRIEVAL_TOP_K no puede superar RETRIEVAL_MAX_TOP_K")
         return self
 
     @property
