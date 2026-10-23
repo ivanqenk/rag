@@ -1,18 +1,72 @@
-"""Endpoints HTTP de documentos. Solo traducen HTTP <-> repositorio; sin lógica de negocio."""
+"""Endpoints HTTP de documentos. Solo traducen HTTP <-> servicios; sin lógica de negocio."""
 
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
+from sqlalchemy.orm import Session
 
+from app.core.config import Settings, get_settings
+from app.db.session import get_db
 from app.repositories.documents import DocumentRepository, get_document_repository
 from app.schemas.document import DocumentPage, DocumentRead
+from app.services import ingestion
+from app.services.pdf_extraction import InvalidPdfError
+from app.services.storage import LocalFileStorage, get_storage
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 
 Repository = Annotated[DocumentRepository, Depends(get_document_repository)]
 
 MAX_PAGE_SIZE = 100
+
+
+@router.post(
+    "",
+    status_code=status.HTTP_201_CREATED,
+    response_model=DocumentRead,
+    responses={
+        400: {"description": "Archivo vacío"},
+        413: {"description": "El archivo supera el tamaño máximo"},
+        415: {"description": "El archivo no es un PDF"},
+        422: {"description": "PDF dañado, cifrado, sin páginas o con demasiadas páginas"},
+    },
+)
+def upload_document(
+    file: UploadFile,
+    session: Annotated[Session, Depends(get_db)],
+    storage: Annotated[LocalFileStorage, Depends(get_storage)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> DocumentRead:
+    """Sube un PDF y lo procesa (extracción + fragmentación).
+
+    Devuelve 201 aunque el procesamiento falle (p. ej. PDF sin texto): el documento queda
+    registrado con `status = "failed"` y un `error_message` explicativo.
+    """
+    max_bytes = settings.max_upload_size_bytes
+    # Leemos como máximo un byte más del límite: suficiente para saber si lo supera
+    # sin cargar en memoria un archivo arbitrariamente grande.
+    data = file.file.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=f"El archivo supera el máximo de {settings.max_upload_size_mb} MB.",
+        )
+
+    try:
+        document = ingestion.register_upload(session, storage, settings, file.filename, data)
+    except ingestion.EmptyFileError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "El archivo está vacío.") from None
+    except ingestion.UnsupportedFileTypeError:
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "Solo se admiten archivos PDF."
+        ) from None
+    except InvalidPdfError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.message) from None
+
+    # Procesamiento síncrono en el MVP; en la Fase 8 esto será un mensaje a una cola.
+    document = ingestion.process_document(session, storage, settings, document.id)
+    return DocumentRead.model_validate(document)
 
 
 @router.get("", response_model=DocumentPage)

@@ -1,14 +1,21 @@
 """Acceso a datos de documentos en PostgreSQL."""
 
+# Evalúa las anotaciones de forma diferida: sin esto, dentro de la clase el método `list`
+# tapa al tipo `list` y `-> list[DocumentChunk]` fallaría al importar el módulo.
+from __future__ import annotations
+
+from collections.abc import Sequence
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.document import Document
+from app.models.document_chunk import DocumentChunk
+from app.services.chunking import TextChunk
 
 
 class DocumentRepository:
@@ -53,6 +60,28 @@ class DocumentRepository:
 
     def get(self, document_id: UUID) -> Document | None:
         return self._session.get(Document, document_id)
+
+    def replace_chunks(self, document_id: UUID, chunks: Sequence[TextChunk]) -> None:
+        """Sustituye los fragmentos de un documento. NO confirma: lo hace quien llama,
+        para que el cambio de fragmentos y de estado ocurran en la misma transacción."""
+        self._session.execute(delete(DocumentChunk).where(DocumentChunk.document_id == document_id))
+        self._session.add_all(
+            DocumentChunk(
+                document_id=document_id,
+                chunk_index=chunk.chunk_index,
+                page_number=chunk.page_number,
+                text=chunk.text,
+            )
+            for chunk in chunks
+        )
+
+    def list_chunks(self, document_id: UUID) -> list[DocumentChunk]:
+        statement = (
+            select(DocumentChunk)
+            .where(DocumentChunk.document_id == document_id)
+            .order_by(DocumentChunk.chunk_index)
+        )
+        return list(self._session.scalars(statement))
 
 
 def get_document_repository(session: Annotated[Session, Depends(get_db)]) -> DocumentRepository:
