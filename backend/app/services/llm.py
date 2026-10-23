@@ -14,6 +14,7 @@ from fastapi import Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.core.config import Settings, get_settings
+from app.services.openai_errors import is_quota_exhausted
 from app.services.prompts import SYSTEM_PROMPT, ContextChunk, build_user_message
 
 
@@ -81,6 +82,10 @@ class OpenAILLMProvider:
         except openai.AuthenticationError as exc:
             raise LLMError("La clave de API del proveedor de LLM no es válida.") from exc
         except openai.OpenAIError as exc:
+            if is_quota_exhausted(exc):
+                raise LLMError(
+                    "El proveedor de LLM no tiene saldo. Añade crédito en la cuenta del proveedor."
+                ) from exc
             raise LLMError("El proveedor de LLM no está disponible. Inténtalo más tarde.") from exc
 
         # None si el modelo se negó a responder o se quedó sin tokens (respuesta incompleta).

@@ -16,6 +16,7 @@ from fastapi import Depends, HTTPException, status
 
 from app.core.config import Settings, get_settings
 from app.models.document_chunk import EMBEDDING_DIMENSIONS
+from app.services.openai_errors import is_quota_exhausted
 
 
 class EmbeddingError(Exception):
@@ -71,6 +72,11 @@ class OpenAIEmbeddingProvider:
                 "La clave de API del proveedor de embeddings no es válida."
             ) from exc
         except openai.OpenAIError as exc:
+            if is_quota_exhausted(exc):
+                raise EmbeddingError(
+                    "El proveedor de embeddings no tiene saldo. Añade crédito en la cuenta "
+                    "del proveedor."
+                ) from exc
             # Incluye timeouts, rate limits y errores 5xx (tras agotar los reintentos del SDK).
             raise EmbeddingError(
                 "El proveedor de embeddings no está disponible. Inténtalo más tarde."

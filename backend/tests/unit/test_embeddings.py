@@ -113,6 +113,14 @@ def _request() -> httpx2.Request:
             "no está disponible",
         ),
         (openai.APITimeoutError(request=_request()), "no está disponible"),
+        (
+            openai.RateLimitError(
+                "no credits",
+                response=httpx2.Response(429, request=_request()),
+                body={"type": "insufficient_quota", "code": "credit_balance_exhausted"},
+            ),
+            "no tiene saldo",
+        ),
     ],
 )
 def test_openai_errors_become_safe_messages(error: Exception, expected_message: str) -> None:
