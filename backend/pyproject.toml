@@ -1,0 +1,33 @@
+[project]
+name = "ai-document-intelligence-backend"
+version = "0.1.0"
+description = "Backend FastAPI de AI Document Intelligence Platform"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "alembic>=1.20.1",
+    "fastapi>=0.161.1",
+    "psycopg[binary]>=3.3.6",
+    "pydantic-settings>=2.16.1",
+    "sqlalchemy>=2.1.6",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+    "ruff>=0.17.2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Permite `from app.main import app` en las pruebas sin instalar el paquete.
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# E/F: errores básicos, I: orden de imports, B: bugs comunes, UP: sintaxis moderna.
+select = ["E", "F", "I", "B", "UP"]

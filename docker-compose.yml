@@ -1,0 +1,25 @@
+services:
+  db:
+    # Imagen oficial de PostgreSQL 17 con la extensión pgvector ya incluida.
+    # La usamos desde ahora para no cambiar de imagen en la Fase 4; la extensión
+    # no se activa hasta que una migración ejecute CREATE EXTENSION.
+    image: pgvector/pgvector:0.8.1-pg17
+    environment:
+      POSTGRES_USER: docintel
+      POSTGRES_PASSWORD: docintel # solo para desarrollo local
+      POSTGRES_DB: docintel
+    ports:
+      # Solo accesible desde esta máquina, no desde la red.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Crea la base de datos de pruebas la primera vez que se inicializa el volumen.
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U docintel -d docintel"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+volumes:
+  pgdata:

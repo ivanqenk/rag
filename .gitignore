@@ -1,0 +1,29 @@
+# Secretos y configuración local
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node / frontend
+node_modules/
+dist/
+
+# Archivos subidos y datos locales (nunca versionar documentos)
+storage/
+uploads/
+*.pdf
+!backend/tests/fixtures/**/*.pdf
+
+# Editores y sistema operativo
+.vscode/
+.idea/
+.DS_Store
+*:Zone.Identifier
