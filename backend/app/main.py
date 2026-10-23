@@ -4,7 +4,7 @@ import logging
 
 from fastapi import FastAPI
 
-from app.api import documents, health, search
+from app.api import documents, health, query, search
 from app.core.config import get_settings
 
 # Uvicorn solo configura sus propios loggers; sin esto, los logs INFO de la aplicación
@@ -25,3 +25,4 @@ app = FastAPI(
 app.include_router(health.router)
 app.include_router(documents.router)
 app.include_router(search.router)
+app.include_router(query.router)

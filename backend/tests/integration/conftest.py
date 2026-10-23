@@ -20,6 +20,7 @@ from app.core.config import Settings, get_settings
 from app.db.session import get_db
 from app.main import app
 from app.services.embeddings import FakeEmbeddingProvider, get_embedding_provider
+from app.services.llm import FakeLLMProvider, get_llm_provider
 
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
@@ -73,6 +74,7 @@ def settings(storage_dir: Path) -> Settings:
         chunk_size=500,
         chunk_overlap=100,
         embeddings_provider="fake",
+        llm_provider="fake",
         # Calibrado para el proveedor falso con los textos de test_search.py: las consultas
         # relevantes dan >= 0.27 y las colisiones de hash entre palabras distintas <= 0.15.
         retrieval_min_score=0.2,
@@ -85,8 +87,17 @@ def embedder() -> FakeEmbeddingProvider:
 
 
 @pytest.fixture
+def llm() -> FakeLLMProvider:
+    return FakeLLMProvider()
+
+
+@pytest.fixture
 def client(
-    engine: Engine, db_session: Session, settings: Settings, embedder: FakeEmbeddingProvider
+    engine: Engine,
+    db_session: Session,
+    settings: Settings,
+    embedder: FakeEmbeddingProvider,
+    llm: FakeLLMProvider,
 ) -> Iterator[TestClient]:
     def override_get_db() -> Iterator[Session]:
         with Session(engine, expire_on_commit=False) as session:
@@ -96,5 +107,6 @@ def client(
     app.dependency_overrides[get_settings] = lambda: settings
     # Nunca llamar a un proveedor real (de pago) desde la suite, aunque .env tenga una clave.
     app.dependency_overrides[get_embedding_provider] = lambda: embedder
+    app.dependency_overrides[get_llm_provider] = lambda: llm
     yield TestClient(app)
     app.dependency_overrides.clear()

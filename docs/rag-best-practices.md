@@ -37,18 +37,19 @@ persona que despliega · 💼 solo necesario si el proyecto pasa a ser un SaaS m
 
 | Práctica | Estado | Dónde / por qué |
 |---|---|---|
-| Prompt con reglas: solo usar el contexto, citar, abstenerse si no hay evidencia | 🔜 | Fase 5 |
-| Documentos delimitados como datos (`<documento id=…>`), nunca como instrucciones | 🔜 | Fase 5 |
-| Verificar que los IDs citados por el LLM estaban entre los recuperados; las fuentes mostradas salen de la BD | 🔜 | Fase 5. El LLM puede inventar citas |
-| Respuesta estructurada (JSON: `answer`, `chunk_ids`, `insufficient_evidence`) | 🔜 | Fase 5 |
-| Límite de fragmentos y de caracteres de contexto, no ampliable por el cliente | 🔜 | Fase 5 |
-| Temperatura baja | 🔜 | Fase 5 |
+| Prompt con reglas: solo usar el contexto, citar, abstenerse si no hay evidencia | ✅ | `services/prompts.py` |
+| Documentos delimitados como datos (`<fuente id=…>`, texto escapado), nunca como instrucciones | ✅ | `build_user_message`: un documento no puede cerrar su etiqueta ni fingir otra fuente |
+| Verificar que los IDs citados por el LLM estaban entre los recuperados; las fuentes mostradas salen de la BD | ✅ | `services/rag.py`. Sin ninguna cita válida, la respuesta se trata como no respaldada |
+| Respuesta estructurada (JSON: `answer`, `cited_sources`, `insufficient_evidence`) | ✅ | Structured Outputs de OpenAI con el esquema `LLMAnswer` |
+| Límite de fragmentos y de caracteres de contexto, no ampliable por el cliente | ✅ | `RETRIEVAL_TOP_K`, `RAG_MAX_CONTEXT_CHARS`; `/query` solo acepta la pregunta |
+| Fidelidad sobre creatividad | ✅ | `gpt-6-luna` no documenta `temperature`; se usa esfuerzo de razonamiento bajo + esquema fijo (ADR 0002) |
+| Sin evidencia no se llama al LLM | ✅ | Ahorra costo y elimina respuestas inventadas |
 
 ## 4. Seguridad
 
 | Práctica | Estado | Dónde / por qué |
 |---|---|---|
-| **Prompt injection indirecta** (riesgo nº 1, OWASP LLM Top 10): el LLM no tiene herramientas, no ve secretos ni decide permisos | 🔜 | Fase 5. Las defensas son de diseño, no de redacción del prompt |
+| **Prompt injection indirecta** (riesgo nº 1, OWASP LLM Top 10): el LLM no tiene herramientas, no ve secretos ni decide permisos | ✅ | Fase 5. Las defensas son de diseño, no de redacción del prompt. Prueba real opcional en `tests/external/test_openai_llm.py` |
 | La salida del LLM se renderiza como texto, no HTML (XSS, exfiltración por enlaces/imágenes markdown) | 🔜 | Fase 6 |
 | Límite de longitud de las preguntas | ✅ | Fase 4, `MAX_QUERY_CHARS` |
 | Secretos solo en `.env` (ignorado por Git) o gestor de secretos; nunca en logs ni frontend | ✅ | `.gitignore`, `.env.example` |
@@ -65,7 +66,9 @@ persona que despliega · 💼 solo necesario si el proyecto pasa a ser un SaaS m
 | Logs sin texto de documentos ni preguntas: solo IDs, conteos, tiempos y puntuaciones | ✅ | Ingestión y búsqueda |
 | Tratar los embeddings como datos sensibles (se puede reconstruir parcialmente el texto) | ✅ | Nunca se devuelven por la API |
 | Borrado real: archivo + fragmentos + embeddings (derecho al olvido) | ✅ | `DELETE /api/v1/documents/{id}` |
-| Conocer la política del proveedor (entrenamiento, retención, región); DPA en un SaaS | 💼 | Ver `docs/decisions/0001-proveedor-embeddings.md` |
+| No guardar conversaciones en el proveedor | ✅ | `store=False` en cada llamada al LLM |
+| No guardar preguntas ni respuestas en nuestra base de datos sin una razón explícita | ✅ | No existe tabla `queries` (opcional en la especificación) |
+| Conocer la política del proveedor (entrenamiento, retención, región); DPA en un SaaS | 💼 | Ver ADR 0001 y 0002 en `docs/decisions/` |
 | Detección / anonimización de datos personales antes de enviarlos al proveedor | 💼 | Si los documentos contienen PII |
 | Cifrado en tránsito (HTTPS) y en reposo (RDS, S3) | 🔜 | Fase 8 |
 
@@ -74,7 +77,7 @@ persona que despliega · 💼 solo necesario si el proyecto pasa a ser un SaaS m
 | Práctica | Estado | Dónde / por qué |
 |---|---|---|
 | Pruebas sin llamadas de pago: proveedor falso determinista | ✅ | `FakeEmbeddingProvider` |
-| Prueba opcional separada contra el proveedor real | ✅ | `pytest -m openai` |
+| Prueba opcional separada contra el proveedor real | ✅ | `pytest -m openai`: embeddings, respuesta citada, abstención y prompt injection |
 | Conjunto de evaluación versionado (incluye preguntas sin respuesta) | 🔜 | Fase 7 |
 | Medir recuperación (recall@k) y respuesta (fidelidad, abstención) por separado | 🔜 | Fase 7 |
 | Repetir la evaluación al cambiar fragmentación, modelo, prompt o top-k | 🔜 | Fase 7 |
@@ -84,7 +87,7 @@ persona que despliega · 💼 solo necesario si el proyecto pasa a ser un SaaS m
 | Práctica | Estado | Dónde / por qué |
 |---|---|---|
 | Timeouts en toda llamada externa y errores claros cuando el proveedor falla | ✅ | Fase 4 (`503` en búsqueda, `failed` en ingestión) |
-| Log por consulta: latencia por etapa, nº de resultados, mejores puntuaciones | ✅ | Fase 4; tokens y costo en la Fase 5 |
+| Log por consulta: latencia por etapa, resultados, citas, tokens, costo estimado, modelo y versión del prompt | ✅ | `services/rag.py`, sin texto de la pregunta ni de la respuesta |
 | Alertas de costo y errores | 🔜 | Fase 8 |
 
 ## 8. Desarrollo
@@ -94,4 +97,4 @@ persona que despliega · 💼 solo necesario si el proyecto pasa a ser un SaaS m
 | Proveedores detrás de una interfaz pequeña | ✅ | `EmbeddingProvider` (Protocol) |
 | Parámetros del RAG configurables, no fijos en el código | ✅ | `app/core/config.py` |
 | Migraciones para todo cambio de esquema, incluida la dimensión del vector | ✅ | `migrations/` |
-| Prompts versionados en el código | 🔜 | Fase 5 |
+| Prompts versionados en el código | ✅ | `services/prompts.py` (`PROMPT_VERSION`) |

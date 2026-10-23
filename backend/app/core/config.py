@@ -47,6 +47,22 @@ class Settings(BaseSettings):
     # calibrar con el conjunto de evaluación (Fase 7).
     retrieval_min_score: float = Field(default=0.25, ge=0, le=1)
 
+    # LLM que redacta las respuestas. "fake" = local y determinista, para pruebas.
+    llm_provider: Literal["openai", "fake"] = "openai"
+    llm_model: str = "gpt-6-luna"
+    # gpt-6-luna es un modelo de razonamiento: más esfuerzo = más tokens (costo) y latencia.
+    llm_reasoning_effort: Literal["none", "low", "medium", "high"] = "low"
+    # Incluye los tokens de razonamiento; si se agota, la respuesta queda incompleta.
+    llm_max_output_tokens: int = Field(default=2000, ge=100)
+    llm_timeout_seconds: float = Field(default=60, gt=0)
+    llm_max_retries: int = Field(default=2, ge=0, le=10)
+    # Precios (USD por millón de tokens) solo para estimar el costo en los logs.
+    llm_input_price_per_mtok: float = Field(default=0.10, ge=0)
+    llm_output_price_per_mtok: float = Field(default=0.50, ge=0)
+
+    # Contexto enviado al LLM: limita costo y evita diluir la respuesta con texto irrelevante.
+    rag_max_context_chars: int = Field(default=8000, ge=500)
+
     @model_validator(mode="after")
     def _overlap_smaller_than_chunk(self) -> "Settings":
         if self.chunk_overlap >= self.chunk_size:

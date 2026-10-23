@@ -3,7 +3,7 @@
 Aplicación web para cargar documentos PDF y hacerles preguntas en lenguaje natural mediante RAG
 (Retrieval-Augmented Generation), con respuestas que citan el documento y la página de origen.
 
-> **Estado:** Fase 4 (embeddings y búsqueda híbrida). Proyecto de portafolio / aprendizaje; **no** es un servicio
+> **Estado:** Fase 5 (respuestas RAG con LLM). Proyecto de portafolio / aprendizaje; **no** es un servicio
 > listo para producción ni para exponerse a Internet (no tiene autenticación ni rate limiting).
 
 La especificación completa está en
@@ -41,8 +41,7 @@ La especificación completa está en
 └── README.md
 ```
 
-Las respuestas generadas por un LLM (RAG completo) y el frontend (React + TypeScript) se
-añadirán en fases posteriores. Las buenas prácticas aplicadas y pendientes están en
+El frontend (React + TypeScript) se añadirá en la Fase 6. Las buenas prácticas aplicadas y pendientes están en
 [`docs/rag-best-practices.md`](docs/rag-best-practices.md).
 
 ## Requisitos
@@ -88,7 +87,8 @@ Para borrarlos por completo: `docker compose down -v`.
 | GET    | `/api/v1/documents/{id}`        | Metadatos y estado de un documento (`404` si no existe, `422` si el id no es UUID) |
 | DELETE | `/api/v1/documents/{id}`        | Borra el documento, sus fragmentos, embeddings y el archivo (`204`) |
 | POST   | `/api/v1/documents/{id}/reprocess` | Vuelve a procesar (tras un fallo o un cambio de modelo de embeddings) |
-| POST   | `/api/v1/search`                | Búsqueda híbrida de fragmentos (sin LLM todavía)        |
+| POST   | `/api/v1/search`                | Búsqueda híbrida de fragmentos (sin LLM)                |
+| POST   | `/api/v1/query`                 | Pregunta → respuesta del LLM con fuentes verificables   |
 
 ### Subir un PDF
 
@@ -144,6 +144,42 @@ códigos y números exactos. Las dos listas se fusionan con Reciprocal Rank Fusi
 - La respuesta nunca incluye los vectores. Los logs registran conteos, similitudes y tiempos,
   nunca el texto de la pregunta ni de los documentos.
 
+### Preguntar (RAG)
+
+```bash
+curl -X POST http://localhost:8000/api/v1/query \
+  -H "Content-Type: application/json" \
+  -d '{"question": "¿cuántos días de vacaciones tengo?"}'
+```
+
+```json
+{
+  "answer": "Cada empleado dispone de veintidós días hábiles de vacaciones al año.",
+  "sources": [
+    {"document_id": "…", "filename": "manual.pdf", "page_number": 1,
+     "chunk_id": "…", "excerpt": "Política de vacaciones. Cada empleado…", "score": 0.016}
+  ],
+  "insufficient_evidence": false
+}
+```
+
+Cómo se genera:
+
+1. Búsqueda híbrida de los fragmentos relevantes. **Si no hay ninguno, se responde que no hay
+   evidencia sin llamar al LLM** (sin costo).
+2. Se construye un contexto limitado (`RETRIEVAL_TOP_K` fragmentos, `RAG_MAX_CONTEXT_CHARS`)
+   con ids cortos `S1`, `S2`… El texto de los documentos va delimitado y escapado, y el prompt
+   (`app/services/prompts.py`) declara que es información, no instrucciones.
+3. El LLM (`gpt-6-luna`, sin herramientas, `store=False`) devuelve JSON con un esquema fijo:
+   respuesta, ids citados y si hay evidencia suficiente.
+4. **Las citas se verifican en el servidor**: se descartan ids que no estaban en el contexto, y
+   las fuentes devueltas (documento, página, extracto) salen de la base de datos, no del texto
+   del LLM. Una respuesta sin ninguna cita válida se trata como no respaldada.
+
+`answer` es texto generado por un LLM: muéstralo siempre como texto, nunca como HTML.
+Costo estimado: ~$0.0004 por pregunta (ver
+[`docs/decisions/0002-proveedor-llm.md`](docs/decisions/0002-proveedor-llm.md)).
+
 ### Embeddings
 
 Proveedor: OpenAI `text-embedding-3-small` (1536 dimensiones). Costo estimado: ~$0.11 por cada
@@ -151,8 +187,9 @@ Proveedor: OpenAI `text-embedding-3-small` (1536 dimensiones). Costo estimado: ~
 [`docs/decisions/0001-proveedor-embeddings.md`](docs/decisions/0001-proveedor-embeddings.md).
 
 - **Configura un límite de gasto** en platform.openai.com antes de usar tu clave.
-- Para probar sin clave ni costo: `EMBEDDINGS_PROVIDER=fake` en `.env` (embeddings locales y
-  deterministas; no entienden sinónimos, solo palabras compartidas).
+- Para probar sin clave ni costo: `EMBEDDINGS_PROVIDER=fake` y `LLM_PROVIDER=fake` en `.env`
+  (embeddings y respuestas locales y deterministas; no entienden sinónimos, solo palabras
+  compartidas, y la "respuesta" es el inicio del fragmento más relevante).
 - Si cambias de modelo, reprocesa los documentos: los vectores de modelos distintos no son
   comparables y la búsqueda ignora los del modelo anterior.
 
@@ -175,7 +212,7 @@ Desde `backend/`:
 ```bash
 uv run pytest               # todas las pruebas (nunca llaman a APIs de pago)
 uv run pytest tests/unit    # solo unitarias (no necesitan PostgreSQL)
-uv run pytest -m openai -s  # prueba opcional contra OpenAI real (cuesta fracciones de centavo)
+uv run pytest -m openai -s  # pruebas opcionales contra OpenAI real (fracciones de centavo)
 uv run ruff format .        # formatea el código
 uv run ruff check .         # lint
 ```
