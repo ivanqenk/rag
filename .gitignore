@@ -27,3 +27,6 @@ uploads/
 .idea/
 .DS_Store
 *:Zone.Identifier
+
+# Resultados locales de la evaluación RAG (se resumen en docs/rag-evaluation.md)
+backend/evaluation/results/
