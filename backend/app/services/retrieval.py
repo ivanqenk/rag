@@ -60,6 +60,18 @@ STOPWORDS = frozenset(
 
 
 @dataclass(frozen=True)
+class Scope:
+    """Dónde buscar: todo (por defecto), una carpeta, un documento o una de sus páginas."""
+
+    folder_id: UUID | None = None
+    document_id: UUID | None = None
+    page_number: int | None = None
+
+
+EVERYWHERE = Scope()
+
+
+@dataclass(frozen=True)
 class SearchResult:
     chunk_id: UUID
     document_id: UUID
@@ -87,30 +99,34 @@ def search(
     settings: Settings,
     query: str,
     top_k: int,
-    document_id: UUID | None = None,
-    page_number: int | None = None,
+    scope: Scope = EVERYWHERE,
 ) -> list[SearchResult]:
     """Devuelve hasta `top_k` fragmentos relevantes. Lista vacía = no hay evidencia suficiente.
 
-    `document_id` y `page_number` limitan la búsqueda a un documento o a una de sus páginas.
+    `scope` limita la búsqueda a una carpeta, a un documento o a una de sus páginas.
     """
     started = time.perf_counter()
     candidates = top_k * CANDIDATES_PER_RESULT
     query_embedding = embedder.embed_query(query)
 
-    # Solo documentos completados: nunca devolver fragmentos de un procesamiento a medias.
+    # Solo documentos completados (nunca fragmentos de un procesamiento a medias) y fuera de
+    # la papelera.
     base = (
         select(DocumentChunk, Document.original_filename)
         .join(Document, Document.id == DocumentChunk.document_id)
-        .where(Document.status == DocumentStatus.COMPLETED)
+        .where(Document.status == DocumentStatus.COMPLETED, Document.deleted_at.is_(None))
     )
-    if document_id is not None:
-        base = base.where(DocumentChunk.document_id == document_id)
-    if page_number is not None:
-        base = base.where(DocumentChunk.page_number == page_number)
+    # Los filtros van DENTRO de la consulta (también en el cálculo de rareza de las palabras),
+    # nunca después: así el top_k sale solo de lo que el usuario eligió.
+    if scope.folder_id is not None:
+        base = base.where(Document.folder_id == scope.folder_id)
+    if scope.document_id is not None:
+        base = base.where(DocumentChunk.document_id == scope.document_id)
+    if scope.page_number is not None:
+        base = base.where(DocumentChunk.page_number == scope.page_number)
     # Con una página elegida, el usuario ya dijo dónde buscar ("¿en qué año fue esto?" puede
     # parecerse poco a la página): se ordena por similitud, pero sin descartar por umbral.
-    min_score = 0.0 if page_number is not None else settings.retrieval_min_score
+    min_score = 0.0 if scope.page_number is not None else settings.retrieval_min_score
 
     # 1) Vectorial. Búsqueda exacta (sin índice). Solo vectores del modelo activo: los de
     #    otro modelo viven en otro "espacio" y compararlos daría resultados sin sentido.

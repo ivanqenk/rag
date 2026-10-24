@@ -64,7 +64,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 button.danger { background: transparent; color: var(--danger); border-color: var(--danger); }
 
 label { font-weight: 600; display: block; margin-bottom: 0.35rem; }
-textarea, input[type="number"] {
+textarea, input[type="number"], input[type="text"], select {
   width: 100%; font: inherit; padding: 0.6rem; border-radius: 6px;
   border: 1px solid var(--border); background: var(--bg); color: var(--text); resize: vertical;
 }
@@ -111,9 +111,21 @@ td.actions button + button { margin-left: 0.4rem; }
 .sources li { margin-bottom: 0.75rem; }
 .sources blockquote { margin: 0.35rem 0 0; padding-left: 0.75rem; border-left: 3px solid var(--border); color: var(--muted); }
 
-.links a + a { margin-left: 1.25rem; }
+.links a + a, .links a + button, .links button + button { margin-left: 1.25rem; }
+.link-button { background: none; border: none; padding: 0; color: var(--accent); text-decoration: underline; }
+.link-button.danger { color: var(--danger); background: none; }
+.notice-box { border: 1px solid var(--border); border-left: 4px solid var(--danger); border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 1rem; }
+.notice-box p { margin-top: 0; }
+.folders { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
+.folders a { padding: 0.3rem 0.75rem; border: 1px solid var(--border); border-radius: 999px; text-decoration: none; color: var(--text); }
+.folders a[aria-current="page"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.folders .count { opacity: 0.7; font-size: 0.85em; margin-left: 0.25rem; }
+.inline-form { display: flex; gap: 0.5rem; max-width: 28rem; }
+.inline-form input { flex: 1; }
+td select { width: auto; max-width: 12rem; padding: 0.3rem 0.4rem; }
 .scope { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; margin-bottom: 0.75rem; }
 .scope label { display: inline; margin: 0; }
+.scope select { width: auto; padding: 0.35rem 0.5rem; resize: none; }
 .scope input[type="number"] { width: 6rem; padding: 0.35rem 0.5rem; resize: none; }
 .metadata { display: grid; grid-template-columns: max-content 1fr; gap: 0.4rem 1rem; }
 .metadata dt { color: var(--muted); }

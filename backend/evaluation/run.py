@@ -166,7 +166,7 @@ def prepare_database(database_url: str) -> Engine:
     command.upgrade(config, "head")
     engine = create_engine(database_url)
     with engine.begin() as connection:
-        connection.execute(text("TRUNCATE documents, document_chunks"))
+        connection.execute(text("TRUNCATE documents, document_chunks, folders"))
     return engine
 
 
@@ -231,30 +231,23 @@ def _evaluate_question(
     expected_page = spec["page"]
     expected_abstention = spec["type"] == "unanswerable"
     # Preguntas hechas desde un documento o una página concretos ("¿en qué año fue esto?").
-    scope = spec.get("filter", {})
-    filter_document = document_ids[scope["document"]] if "document" in scope else None
-    filter_page = scope.get("page")
+    spec_filter = spec.get("filter", {})
+    filter_document = document_ids[spec_filter["document"]] if "document" in spec_filter else None
+    filter_page = spec_filter.get("page")
 
     # Búsqueda aparte, sin umbral, solo para ver la similitud (calibrar el umbral). Repite el
     # embedding de la pregunta: costo despreciable.
     unfiltered = settings.model_copy(update={"retrieval_min_score": 0.0})
+    scope = retrieval.Scope(document_id=filter_document, page_number=filter_page)
     candidates = retrieval.search(
-        session,
-        embedder,
-        unfiltered,
-        question,
-        settings.retrieval_top_k,
-        filter_document,
-        filter_page,
+        session, embedder, unfiltered, question, settings.retrieval_top_k, scope
     )
     similarities = [c.vector_similarity for c in candidates if c.vector_similarity is not None]
     best_similarity = round(max(similarities), 3) if similarities else None
 
     tokens_before = (llm.input_tokens, llm.output_tokens)
     started = time.perf_counter()
-    answer = rag.answer_question(
-        session, embedder, llm, settings, question, filter_document, filter_page
-    )
+    answer = rag.answer_question(session, embedder, llm, settings, question, scope)
     latency_ms = (time.perf_counter() - started) * 1000
     input_tokens = llm.input_tokens - tokens_before[0]
     output_tokens = llm.output_tokens - tokens_before[1]

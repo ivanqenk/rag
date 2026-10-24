@@ -210,14 +210,16 @@ def test_reprocess_endpoint_recovers_a_failed_document(
     assert DocumentRepository(db_session).list_chunks(document.id)
 
 
-def test_delete_removes_document_chunks_and_file(
+def test_permanent_delete_removes_document_chunks_and_file(
     client: TestClient, db_session: Session, storage_dir: Path
 ) -> None:
     body = upload(client, make_pdf([LONG_TEXT]))["body"]
     document_id = UUID(body["id"])
     assert stored_files(storage_dir)
 
-    response = client.delete(f"/api/v1/documents/{document_id}")
+    # Eliminar manda a la papelera; borrar del todo se hace desde ella.
+    assert client.delete(f"/api/v1/documents/{document_id}").status_code == 204
+    response = client.delete(f"/api/v1/trash/{document_id}")
 
     assert response.status_code == 204
     assert client.get(f"/api/v1/documents/{document_id}").status_code == 404

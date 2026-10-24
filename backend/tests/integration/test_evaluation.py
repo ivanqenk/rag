@@ -20,7 +20,7 @@ from evaluation.run import DATASET_PATH, _includes, run_evaluation
 def clean_engine(engine: Engine) -> Iterator[Engine]:
     yield engine
     with engine.begin() as connection:
-        connection.execute(text("TRUNCATE documents, document_chunks"))
+        connection.execute(text("TRUNCATE documents, document_chunks, folders"))
 
 
 def test_evaluation_runs_over_the_whole_dataset(clean_engine: Engine, settings: Settings) -> None:

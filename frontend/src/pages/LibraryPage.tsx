@@ -1,51 +1,65 @@
-import { useCallback, useEffect, useState } from 'react'
-import { ApiError, deleteDocument, listDocuments, reprocessDocument } from '../api/client'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import {
+  ApiError,
+  createFolder,
+  deleteDocument,
+  deleteFolder,
+  listDocuments,
+  listFolders,
+  moveDocument,
+  renameFolder,
+  reprocessDocument,
+} from '../api/client'
 import { StatusBadge } from '../components/StatusBadge'
 import { UploadForm } from '../components/UploadForm'
 import { formatBytes, formatDate } from '../format'
 import { routes } from '../router'
-import type { DocumentRead } from '../types/api'
+import type { DocumentRead, Folder } from '../types/api'
 
 type ListState =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
-  | { kind: 'ready'; documents: DocumentRead[]; total: number }
+  | { kind: 'ready'; documents: DocumentRead[]; total: number; folders: Folder[] }
 
-async function fetchListState(): Promise<ListState> {
+function errorText(error: unknown, fallback: string): string {
+  return error instanceof ApiError ? error.message : fallback
+}
+
+async function fetchListState(folderId?: string): Promise<ListState> {
   try {
-    const page = await listDocuments()
-    return { kind: 'ready', documents: page.items, total: page.total }
+    const [page, folders] = await Promise.all([listDocuments(50, 0, folderId), listFolders()])
+    return { kind: 'ready', documents: page.items, total: page.total, folders }
   } catch (error) {
-    return {
-      kind: 'error',
-      message: error instanceof ApiError ? error.message : 'No se pudo cargar la biblioteca.',
-    }
+    return { kind: 'error', message: errorText(error, 'No se pudo cargar la biblioteca.') }
   }
 }
 
-export function LibraryPage() {
+/** Biblioteca: todos los documentos o, con `folderId`, solo los de esa carpeta. */
+export function LibraryPage({ folderId }: { folderId?: string }) {
   const [state, setState] = useState<ListState>({ kind: 'loading' })
   const [actionError, setActionError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
 
-  const load = useCallback(async () => setState(await fetchListState()), [])
+  const load = useCallback(async () => setState(await fetchListState(folderId)), [folderId])
 
   useEffect(() => {
     let cancelled = false
-    void fetchListState().then((next) => !cancelled && setState(next))
+    void fetchListState(folderId).then((next) => !cancelled && setState(next))
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [folderId])
 
-  async function runAction(id: string, action: () => Promise<unknown>) {
+  async function runAction(id: string, action: () => Promise<unknown>): Promise<boolean> {
     setActionError(null)
     setBusyId(id)
     try {
       await action()
       await load()
+      return true
     } catch (error) {
-      setActionError(error instanceof ApiError ? error.message : 'La operación no se completó.')
+      setActionError(errorText(error, 'La operación no se completó.'))
+      return false
     } finally {
       setBusyId(null)
     }
@@ -53,17 +67,38 @@ export function LibraryPage() {
 
   function onDelete(document: DocumentRead) {
     const confirmed = window.confirm(
-      `¿Eliminar «${document.original_filename}»? Se borrarán el archivo y sus datos. No se puede deshacer.`,
+      `¿Eliminar «${document.original_filename}»? Irá a la papelera: podrás restaurarlo ` +
+        'durante 30 días; después se borrará definitivamente.',
     )
     if (confirmed) void runAction(document.id, () => deleteDocument(document.id))
   }
 
+  const folders = state.kind === 'ready' ? state.folders : []
+  const current = folders.find((folder) => folder.id === folderId)
+  const unknownFolder = state.kind === 'ready' && folderId !== undefined && !current
+
   return (
     <>
-      <UploadForm onUploaded={() => void load()} />
+      <FolderBar
+        folders={folders}
+        current={current}
+        busy={busyId !== null}
+        onAction={(action) => runAction('folders', action)}
+      />
+
+      {unknownFolder ? (
+        <section className="card">
+          <p className="error" role="alert">
+            La carpeta no existe.
+          </p>
+          <a href={routes.library}>Ver todos los documentos</a>
+        </section>
+      ) : (
+        <UploadForm folder={current} onUploaded={() => void load()} />
+      )}
 
       <section className="card" aria-labelledby="library-title">
-        <h2 id="library-title">Biblioteca</h2>
+        <h2 id="library-title">{current ? current.name : 'Biblioteca'}</h2>
         {actionError && (
           <p className="error" role="alert">
             {actionError}
@@ -79,7 +114,11 @@ export function LibraryPage() {
           </div>
         )}
         {state.kind === 'ready' && state.documents.length === 0 && (
-          <p className="empty">Aún no hay documentos. Sube un PDF para empezar.</p>
+          <p className="empty">
+            {current
+              ? 'Esta carpeta está vacía. Sube un PDF o mueve aquí un documento.'
+              : 'Aún no hay documentos. Sube un PDF para empezar.'}
+          </p>
         )}
         {state.kind === 'ready' && state.documents.length > 0 && (
           <>
@@ -90,6 +129,7 @@ export function LibraryPage() {
               <thead>
                 <tr>
                   <th scope="col">Nombre</th>
+                  <th scope="col">Carpeta</th>
                   <th scope="col">Tamaño</th>
                   <th scope="col">Subido</th>
                   <th scope="col">Estado</th>
@@ -106,6 +146,24 @@ export function LibraryPage() {
                       {document.status === 'failed' && document.error_message && (
                         <div className="row-error">{document.error_message}</div>
                       )}
+                    </td>
+                    <td>
+                      <select
+                        aria-label={`Carpeta de ${document.original_filename}`}
+                        value={document.folder_id ?? ''}
+                        disabled={busyId === document.id}
+                        onChange={(event) => {
+                          const target = event.target.value || null
+                          void runAction(document.id, () => moveDocument(document.id, target))
+                        }}
+                      >
+                        <option value="">Sin carpeta</option>
+                        {state.folders.map((folder) => (
+                          <option key={folder.id} value={folder.id}>
+                            {folder.name}
+                          </option>
+                        ))}
+                      </select>
                     </td>
                     <td>{formatBytes(document.size_bytes)}</td>
                     <td>{formatDate(document.created_at)}</td>
@@ -147,5 +205,89 @@ export function LibraryPage() {
         )}
       </section>
     </>
+  )
+}
+
+function FolderBar({
+  folders,
+  current,
+  busy,
+  onAction,
+}: {
+  folders: Folder[]
+  current: Folder | undefined
+  busy: boolean
+  onAction: (action: () => Promise<unknown>) => Promise<boolean>
+}) {
+  const [name, setName] = useState('')
+
+  async function onCreate(event: FormEvent) {
+    event.preventDefault()
+    const trimmed = name.trim()
+    if (!trimmed) return
+    if (await onAction(() => createFolder(trimmed))) setName('')
+  }
+
+  function onRename(folder: Folder) {
+    const next = window.prompt('Nuevo nombre de la carpeta', folder.name)?.trim()
+    if (next && next !== folder.name) void onAction(() => renameFolder(folder.id, next))
+  }
+
+  function onDelete(folder: Folder) {
+    const confirmed = window.confirm(
+      `¿Eliminar la carpeta «${folder.name}»? Sus documentos no se borran: quedarán sin carpeta.`,
+    )
+    if (!confirmed) return
+    void onAction(async () => {
+      await deleteFolder(folder.id)
+      window.location.hash = routes.library
+    })
+  }
+
+  return (
+    <section className="card" aria-labelledby="folders-title">
+      <h2 id="folders-title">Carpetas</h2>
+      <nav aria-label="Carpetas" className="folders">
+        <a href={routes.library} aria-current={current ? undefined : 'page'}>
+          Todos los documentos
+        </a>
+        {folders.map((folder) => (
+          <a
+            key={folder.id}
+            href={routes.folder(folder.id)}
+            aria-current={folder.id === current?.id ? 'page' : undefined}
+          >
+            {folder.name} <span className="count">{folder.document_count}</span>
+          </a>
+        ))}
+      </nav>
+      {current && (
+        <p className="links">
+          <a href={routes.askFolder(current.id)}>Preguntar a esta carpeta</a>
+          <button type="button" className="link-button" onClick={() => onRename(current)}>
+            Renombrar
+          </button>
+          <button type="button" className="link-button danger" onClick={() => onDelete(current)}>
+            Eliminar carpeta
+          </button>
+        </p>
+      )}
+      <form className="inline-form" onSubmit={onCreate}>
+        <label htmlFor="folder-name" className="visually-hidden">
+          Nombre de la nueva carpeta
+        </label>
+        <input
+          id="folder-name"
+          type="text"
+          maxLength={100}
+          placeholder="Nueva carpeta"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+        <button type="submit" disabled={busy || !name.trim()}>
+          Crear carpeta
+        </button>
+      </form>
+    </section>
   )
 }

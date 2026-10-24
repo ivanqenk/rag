@@ -35,6 +35,15 @@ class DocumentRead(BaseModel):
     processed_at: datetime | None = None
     # Generado por un LLM: el cliente debe mostrarlo como texto, nunca como HTML.
     summary: str | None = None
+    folder_id: UUID | None = None
+    # En la papelera desde esta fecha; None si está activo.
+    deleted_at: datetime | None = None
+
+
+class DocumentUpdate(BaseModel):
+    """Mover un documento: a una carpeta, o fuera de cualquier carpeta con `null`."""
+
+    folder_id: UUID | None
 
 
 class DocumentPage(BaseModel):
@@ -44,3 +53,9 @@ class DocumentPage(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class TrashPage(DocumentPage):
+    """Documentos de la papelera; se borran del todo `retention_days` después de `deleted_at`."""
+
+    retention_days: int

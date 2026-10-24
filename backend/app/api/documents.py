@@ -4,15 +4,16 @@ from typing import Annotated
 from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
 from app.models.document import Document
 from app.repositories.documents import DocumentRepository, get_document_repository
-from app.schemas.document import DocumentPage, DocumentRead
-from app.services import ingestion
+from app.repositories.folders import FolderRepository
+from app.schemas.document import DocumentPage, DocumentRead, DocumentUpdate
+from app.services import ingestion, trash
 from app.services.embeddings import EmbeddingProvider, get_embedding_provider
 from app.services.llm import LLMProvider, get_optional_llm_provider
 from app.services.pdf_extraction import InvalidPdfError
@@ -34,6 +35,7 @@ MAX_PAGE_SIZE = 100
     response_model=DocumentRead,
     responses={
         400: {"description": "Archivo vacío"},
+        404: {"description": "La carpeta indicada no existe"},
         413: {"description": "El archivo supera el tamaño máximo"},
         415: {"description": "El archivo no es un PDF"},
         422: {"description": "PDF dañado, cifrado, sin páginas o con demasiadas páginas"},
@@ -47,6 +49,7 @@ def upload_document(
     embedder: Embedder,
     llm: OptionalLLM,
     settings: Annotated[Settings, Depends(get_settings)],
+    folder_id: Annotated[UUID | None, Form(description="Carpeta donde guardarlo")] = None,
 ) -> DocumentRead:
     """Sube un PDF y lo procesa (extracción, fragmentación, embeddings y resumen).
 
@@ -63,8 +66,13 @@ def upload_document(
             detail=f"El archivo supera el máximo de {settings.max_upload_size_mb} MB.",
         )
 
+    if folder_id is not None:
+        _check_folder_exists(session, folder_id)
+
     try:
-        document = ingestion.register_upload(session, storage, settings, file.filename, data)
+        document = ingestion.register_upload(
+            session, storage, settings, file.filename, data, folder_id
+        )
     except ingestion.EmptyFileError:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "El archivo está vacío.") from None
     except ingestion.UnsupportedFileTypeError:
@@ -84,9 +92,10 @@ def list_documents(
     repository: Repository,
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
+    folder_id: Annotated[UUID | None, Query(description="Solo los de esta carpeta")] = None,
 ) -> DocumentPage:
     """Lista documentos ordenados por fecha de creación descendente."""
-    documents, total = repository.list(limit=limit, offset=offset)
+    documents, total = repository.list(limit=limit, offset=offset, folder_id=folder_id)
     items = [DocumentRead.model_validate(document) for document in documents]
     return DocumentPage(items=items, total=total, limit=limit, offset=offset)
 
@@ -99,6 +108,27 @@ def list_documents(
 def get_document(document_id: UUID, repository: Repository) -> DocumentRead:
     """Devuelve los metadatos y el estado de un documento."""
     return DocumentRead.model_validate(_get_or_404(repository, document_id))
+
+
+@router.patch(
+    "/{document_id}",
+    response_model=DocumentRead,
+    responses={
+        404: {"description": "Documento o carpeta no encontrados"},
+        409: {"description": "El documento está en la papelera"},
+    },
+)
+def update_document(
+    document_id: UUID,
+    body: DocumentUpdate,
+    repository: Repository,
+    session: Annotated[Session, Depends(get_db)],
+) -> DocumentRead:
+    """Mueve el documento a una carpeta (`folder_id`) o lo saca de ella (`null`)."""
+    document = _get_active_or_409(repository, document_id)
+    if body.folder_id is not None:
+        _check_folder_exists(session, body.folder_id)
+    return DocumentRead.model_validate(repository.move(document, body.folder_id))
 
 
 @router.get(
@@ -144,10 +174,12 @@ def delete_document(
     document_id: UUID,
     repository: Repository,
     session: Annotated[Session, Depends(get_db)],
-    storage: Annotated[LocalFileStorage, Depends(get_storage)],
 ) -> None:
-    """Elimina el documento, sus fragmentos y embeddings, y el archivo almacenado."""
-    ingestion.delete_document(session, storage, _get_or_404(repository, document_id))
+    """Mueve el documento a la papelera: deja de aparecer en la biblioteca y en las
+    respuestas, y se puede restaurar durante TRASH_RETENTION_DAYS días (ver /api/v1/trash)."""
+    document = _get_or_404(repository, document_id)
+    if document.deleted_at is None:
+        trash.move_to_trash(session, document)
 
 
 @router.post(
@@ -155,6 +187,7 @@ def delete_document(
     response_model=DocumentRead,
     responses={
         404: {"description": "Documento no encontrado"},
+        409: {"description": "El documento está en la papelera"},
         503: {"description": "Proveedor de embeddings no configurado"},
     },
 )
@@ -168,7 +201,7 @@ def reprocess_document(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> DocumentRead:
     """Vuelve a procesar un documento: tras un fallo, o tras cambiar de modelo de embeddings."""
-    document = _get_or_404(repository, document_id)
+    document = _get_active_or_409(repository, document_id)
     document = ingestion.process_document(session, storage, embedder, llm, settings, document.id)
     return DocumentRead.model_validate(document)
 
@@ -180,6 +213,20 @@ def _inline_disposition(filename: str) -> str:
     return (
         f"inline; filename=\"{ascii_name or 'documento.pdf'}\"; filename*=UTF-8''{quote(filename)}"
     )
+
+
+def _check_folder_exists(session: Session, folder_id: UUID) -> None:
+    if FolderRepository(session).get(folder_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Carpeta no encontrada.")
+
+
+def _get_active_or_409(repository: DocumentRepository, document_id: UUID) -> Document:
+    document = _get_or_404(repository, document_id)
+    if document.deleted_at is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "El documento está en la papelera. Restáuralo primero."
+        )
+    return document
 
 
 def _get_or_404(repository: DocumentRepository, document_id: UUID) -> Document:

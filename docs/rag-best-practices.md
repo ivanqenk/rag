@@ -31,7 +31,7 @@ persona que despliega · 💼 solo necesario si el proyecto pasa a ser un SaaS m
 | Búsqueda híbrida: vectorial + texto completo (`tsvector`), fusionadas con RRF | ✅ | Fase 4. Los embeddings fallan con nombres propios, códigos y números exactos. Desde la evaluación con un libro: palabras con OR y puntuación BM25, exigiendo la mitad de las palabras importantes |
 | Búsqueda exacta primero; índice HNSW solo cuando el volumen lo justifique | ✅ | Fase 4: sin índice vectorial. Un índice aproximado puede perder resultados |
 | Reordenar candidatos (reranking) antes de generar | ✅ | `RAG_STRATEGY=rerank`: el LLM elige 5 de 20 candidatos. Medido: 90 % → 100 % en un libro largo, +1 s ([ADR 0004](decisions/0004-reordenamiento-con-llm.md)). Un modelo de reranking dedicado sería más barato a gran escala |
-| Filtros por metadatos (documento, página) dentro de la consulta | ✅ | `document_id` / `page_number` en `/query` y `/search`. Es la base de filtros futuros (año fiscal, cliente…) |
+| Filtros por metadatos (carpeta, documento, página) dentro de la consulta | ✅ | `folder_id` / `document_id` / `page_number` en `/query` y `/search`. Es la base de filtros futuros (año fiscal, cliente…) |
 | Filtrar permisos **dentro** de la consulta SQL, nunca después | 💼 | Ver «Aislamiento entre clientes» |
 
 ## 3. Generación
@@ -67,7 +67,7 @@ persona que despliega · 💼 solo necesario si el proyecto pasa a ser un SaaS m
 |---|---|---|
 | Logs sin texto de documentos ni preguntas: solo IDs, conteos, tiempos y puntuaciones | ✅ | Ingestión y búsqueda |
 | Tratar los embeddings como datos sensibles (se puede reconstruir parcialmente el texto) | ✅ | Nunca se devuelven por la API |
-| Borrado real: archivo + fragmentos + embeddings (derecho al olvido) | ✅ | `DELETE /api/v1/documents/{id}` |
+| Borrado real: archivo + fragmentos + embeddings (derecho al olvido) | ✅ | Eliminar manda a la papelera; el borrado real ocurre al vaciarla, al eliminar desde ella o a los 30 días (`services/trash.py`). Los documentos de la papelera nunca se usan en las respuestas |
 | No guardar conversaciones en el proveedor | ✅ | `store=False` en cada llamada al LLM |
 | No guardar preguntas ni respuestas en nuestra base de datos sin una razón explícita | ✅ | No existe tabla `queries` (opcional en la especificación) |
 | Conocer la política del proveedor (entrenamiento, retención, región); DPA en un SaaS | 💼 | Ver ADR 0001 y 0002 en `docs/decisions/` |

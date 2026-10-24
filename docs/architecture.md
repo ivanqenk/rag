@@ -88,7 +88,13 @@ flowchart TD
 
 ```mermaid
 erDiagram
+    folders |o--o{ documents : "agrupa (ON DELETE SET NULL)"
     documents ||--o{ document_chunks : "tiene (ON DELETE CASCADE)"
+    folders {
+        uuid id PK
+        varchar name "único sin distinguir mayúsculas (índice sobre lower(name))"
+        timestamptz created_at
+    }
     documents {
         uuid id PK
         varchar original_filename "saneado; solo para mostrar"
@@ -100,6 +106,8 @@ erDiagram
         varchar error_message
         text summary "generado por el LLM; puede ser NULL"
         varchar summary_model
+        uuid folder_id FK "NULL = sin carpeta"
+        timestamptz deleted_at "NULL = activo; con fecha = en la papelera"
         timestamptz created_at
         timestamptz processed_at
     }
@@ -114,6 +122,10 @@ erDiagram
         tsvector search_vector "columna calculada + índice GIN"
     }
 ```
+
+Borrar una carpeta deja sus documentos sin carpeta. Un documento con `deleted_at` está en la
+papelera: las búsquedas, los resúmenes y los listados lo excluyen, y la tarea
+`purge_periodically` (`services/trash.py`) lo borra del todo pasados `TRASH_RETENTION_DAYS` días.
 
 No hay tabla `queries`: las preguntas no se guardan (privacidad). Los logs registran métricas
 de cada consulta (conteos, tokens, costo estimado, latencias, versión del prompt), nunca el

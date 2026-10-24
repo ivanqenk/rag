@@ -6,9 +6,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.api.scope import check_scope_exists
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
-from app.repositories.documents import DocumentRepository
 from app.schemas.query import QueryRequest, QueryResponse, SourceItem
 from app.services import rag
 from app.services.embeddings import EmbeddingError, EmbeddingProvider, get_embedding_provider
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/v1", tags=["query"])
     "/query",
     response_model=QueryResponse,
     responses={
-        404: {"description": "El documento indicado en document_id no existe"},
+        404: {"description": "La carpeta o el documento indicados no existen"},
         422: {"description": "Pregunta vacía o demasiado larga, o page_number sin document_id"},
         503: {"description": "Proveedor de embeddings o de LLM no configurado o no disponible"},
     },
@@ -47,13 +47,10 @@ def query_documents(
             f"La pregunta supera el máximo de {settings.max_query_chars} caracteres.",
         )
 
-    if request.document_id and DocumentRepository(session).get(request.document_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Documento no encontrado.")
+    check_scope_exists(session, request)
 
     try:
-        result = rag.answer_question(
-            session, embedder, llm, settings, question, request.document_id, request.page_number
-        )
+        result = rag.answer_question(session, embedder, llm, settings, question, request.to_scope())
     except (EmbeddingError, LLMError) as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, exc.message) from None
 

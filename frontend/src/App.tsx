@@ -1,6 +1,7 @@
 import { AskPage } from './pages/AskPage'
 import { DocumentPage } from './pages/DocumentPage'
 import { LibraryPage } from './pages/LibraryPage'
+import { TrashPage } from './pages/TrashPage'
 import { routes, useRoute } from './router'
 
 export default function App() {
@@ -11,19 +12,32 @@ export default function App() {
       <header className="app-header">
         <h1>Document Intelligence</h1>
         <nav aria-label="Principal">
-          <a href={routes.library} aria-current={route.name !== 'ask' ? 'page' : undefined}>
+          <a
+            href={routes.library}
+            aria-current={route.name === 'library' || route.name === 'document' ? 'page' : undefined}
+          >
             Biblioteca
           </a>
           <a href={routes.ask} aria-current={route.name === 'ask' ? 'page' : undefined}>
             Preguntar
           </a>
+          <a href={routes.trash} aria-current={route.name === 'trash' ? 'page' : undefined}>
+            Papelera
+          </a>
         </nav>
       </header>
       <main>
-        {route.name === 'library' && <LibraryPage />}
-        {route.name === 'ask' && (
-          <AskPage key={route.documentId ?? 'todos'} documentId={route.documentId} />
+        {route.name === 'library' && (
+          <LibraryPage key={route.folderId ?? 'todas'} folderId={route.folderId} />
         )}
+        {route.name === 'ask' && (
+          <AskPage
+            key={route.documentId ?? route.folderId ?? 'todos'}
+            documentId={route.documentId}
+            folderId={route.folderId}
+          />
+        )}
+        {route.name === 'trash' && <TrashPage />}
         {route.name === 'document' && <DocumentPage key={route.id} id={route.id} />}
       </main>
       <footer className="app-footer">

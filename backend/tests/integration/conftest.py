@@ -58,7 +58,7 @@ def db_session(engine: Engine) -> Iterator[Session]:
         yield session
     # Cada prueba empieza con tablas vacías.
     with engine.begin() as connection:
-        connection.execute(text("TRUNCATE documents, document_chunks"))
+        connection.execute(text("TRUNCATE documents, document_chunks, folders"))
 
 
 @pytest.fixture

@@ -20,7 +20,9 @@ class FakeDocumentRepository:
     def __init__(self, documents: list[DocumentRead]) -> None:
         self._documents = {doc.id: doc for doc in documents}
 
-    def list(self, limit: int, offset: int) -> tuple[list[DocumentRead], int]:
+    def list(
+        self, limit: int, offset: int, folder_id: object = None
+    ) -> tuple[list[DocumentRead], int]:
         ordered = sorted(self._documents.values(), key=lambda d: d.created_at, reverse=True)
         return ordered[offset : offset + limit], len(ordered)
 

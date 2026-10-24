@@ -74,4 +74,18 @@ describe('DocumentPage', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('no existe o fue eliminado')
   })
+
+  it('avisa si está en la papelera y permite restaurarlo', async () => {
+    const trashed = makeDocument({ deleted_at: '2026-10-24T10:00:00Z' })
+    const fetchSpy = mockFetch(jsonResponse(trashed), jsonResponse({ ...trashed, deleted_at: null }))
+    render(<DocumentPage id={trashed.id} />)
+
+    expect(await screen.findByText(/está en la/)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Preguntar sobre este documento' })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Restaurar' }))
+
+    expect(await screen.findByRole('link', { name: 'Preguntar sobre este documento' })).toBeInTheDocument()
+    expect(screen.queryByText(/está en la/)).toBeNull()
+    expect(fetchSpy.mock.calls[1][0]).toBe(`/api/v1/trash/${trashed.id}/restore`)
+  })
 })

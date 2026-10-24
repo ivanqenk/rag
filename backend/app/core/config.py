@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     summary_max_input_chars: int = Field(default=12000, ge=1000)
     summary_max_chars: int = Field(default=1500, ge=200)
 
+    # Papelera: los documentos eliminados se pueden restaurar durante este tiempo; después se
+    # borran del todo (registro, fragmentos y archivo). La comprobación se repite cada hora.
+    trash_retention_days: int = Field(default=30, ge=1)
+    trash_purge_interval_seconds: float = Field(default=3600, gt=0)
+
     @model_validator(mode="after")
     def _overlap_smaller_than_chunk(self) -> "Settings":
         if self.chunk_overlap >= self.chunk_size:

@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react'
-import { ApiError, documentFileUrl, getDocument, reprocessDocument } from '../api/client'
+import {
+  ApiError,
+  documentFileUrl,
+  getDocument,
+  reprocessDocument,
+  restoreDocument,
+} from '../api/client'
 import { StatusBadge } from '../components/StatusBadge'
 import { formatBytes, formatDate } from '../format'
 import { routes } from '../router'
@@ -48,6 +54,12 @@ export function DocumentPage({ id }: { id: string }) {
       {state.kind === 'ready' && (
         <>
           <h2 id="document-title">{state.document.original_filename}</h2>
+          {state.document.deleted_at && (
+            <TrashNotice
+              document={state.document}
+              onRestored={(document) => setState({ kind: 'ready', document })}
+            />
+          )}
           <dl className="metadata">
             <dt>Estado</dt>
             <dd>
@@ -74,7 +86,7 @@ export function DocumentPage({ id }: { id: string }) {
             <a href={documentFileUrl(state.document.id)} target="_blank" rel="noopener noreferrer">
               Ver PDF original
             </a>
-            {state.document.status === 'completed' && (
+            {state.document.status === 'completed' && !state.document.deleted_at && (
               <a href={routes.askAbout(state.document.id)}>Preguntar sobre este documento</a>
             )}
           </p>
@@ -99,6 +111,8 @@ function Summary({
   const [error, setError] = useState<string | null>(null)
 
   if (document.status !== 'completed') return null
+  // En la papelera no se puede reprocesar (el servidor respondería 409).
+  const canRegenerate = !document.deleted_at
 
   async function regenerate() {
     setBusy(true)
@@ -129,9 +143,11 @@ function Summary({
           <p className="hint">
             No hay resumen disponible: el proveedor de IA no estaba configurado o falló.
           </p>
-          <button type="button" disabled={busy} onClick={() => void regenerate()}>
-            {busy ? 'Generando…' : 'Generar resumen'}
-          </button>
+          {canRegenerate && (
+            <button type="button" disabled={busy} onClick={() => void regenerate()}>
+              {busy ? 'Generando…' : 'Generar resumen'}
+            </button>
+          )}
         </>
       )}
       <div aria-live="polite">
@@ -142,5 +158,45 @@ function Summary({
         )}
       </div>
     </section>
+  )
+}
+
+function TrashNotice({
+  document,
+  onRestored,
+}: {
+  document: DocumentRead
+  onRestored: (document: DocumentRead) => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function restore() {
+    setBusy(true)
+    setError(null)
+    try {
+      onRestored(await restoreDocument(document.id))
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'No se pudo restaurar el documento.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="notice-box" role="status">
+      <p>
+        Este documento está en la <a href={routes.trash}>papelera</a>: no aparece en la biblioteca
+        ni en las respuestas.
+      </p>
+      <button type="button" disabled={busy} onClick={() => void restore()}>
+        {busy ? 'Restaurando…' : 'Restaurar'}
+      </button>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
   )
 }

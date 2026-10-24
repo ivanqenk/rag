@@ -1,7 +1,7 @@
 import { useRef, useState, type DragEvent } from 'react'
 import { ApiError, uploadDocument } from '../api/client'
 import { MAX_UPLOAD_MB } from '../config'
-import type { DocumentRead } from '../types/api'
+import type { DocumentRead, Folder } from '../types/api'
 import { validateFile } from '../validation'
 
 type UploadState =
@@ -10,7 +10,8 @@ type UploadState =
   | { kind: 'done'; document: DocumentRead }
   | { kind: 'error'; message: string }
 
-export function UploadForm({ onUploaded }: { onUploaded: () => void }) {
+/** Sube un PDF; con `folder`, lo guarda en esa carpeta. */
+export function UploadForm({ folder, onUploaded }: { folder?: Folder; onUploaded: () => void }) {
   const [state, setState] = useState<UploadState>({ kind: 'idle' })
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -23,7 +24,7 @@ export function UploadForm({ onUploaded }: { onUploaded: () => void }) {
     }
     setState({ kind: 'uploading', filename: file.name })
     try {
-      const document = await uploadDocument(file)
+      const document = await uploadDocument(file, folder?.id)
       setState({ kind: 'done', document })
       onUploaded()
     } catch (error) {
@@ -72,6 +73,7 @@ export function UploadForm({ onUploaded }: { onUploaded: () => void }) {
           Arrastra un PDF aquí o <span className="link-like">elige un archivo</span>
         </span>
         <span className="hint">Máximo {MAX_UPLOAD_MB} MB. PDF con texto (los escaneados no son compatibles).</span>
+        {folder && <span className="hint">Se guardará en «{folder.name}».</span>}
       </label>
 
       {/* aria-live anuncia los cambios de estado a los lectores de pantalla. */}

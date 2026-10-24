@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, String, Text, func
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -37,3 +37,11 @@ class Document(Base):
     # Resumen generado por el LLM al procesar el documento (None si no se pudo generar).
     summary: Mapped[str | None] = mapped_column(Text)
     summary_model: Mapped[str | None] = mapped_column(String(100))
+    # En la papelera desde esta fecha (None = activo). Se borra del todo pasados
+    # TRASH_RETENTION_DAYS días (services/trash.py).
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    # Carpeta opcional. Borrar la carpeta no borra sus documentos: quedan sin carpeta.
+    folder_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("folders.id", ondelete="SET NULL", name="fk_documents_folder_id_folders"),
+        index=True,
+    )

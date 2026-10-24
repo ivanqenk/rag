@@ -1,6 +1,6 @@
 // Cliente HTTP tipado. Es el único lugar que conoce las URLs y el formato de errores de la API.
 
-import type { DocumentPage, DocumentRead, QueryResponse } from '../types/api'
+import type { DocumentPage, DocumentRead, Folder, QueryResponse, TrashPage } from '../types/api'
 
 /** Error con un mensaje apto para mostrar al usuario (nunca trazas ni detalles internos). */
 export class ApiError extends Error {
@@ -49,8 +49,9 @@ async function errorMessage(response: Response): Promise<string> {
   return `Error inesperado (${response.status}).`
 }
 
-export function listDocuments(limit = 50, offset = 0): Promise<DocumentPage> {
+export function listDocuments(limit = 50, offset = 0, folderId?: string): Promise<DocumentPage> {
   const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+  if (folderId) params.set('folder_id', folderId)
   return request<DocumentPage>(`/api/v1/documents?${params}`)
 }
 
@@ -58,14 +59,73 @@ export function getDocument(id: string): Promise<DocumentRead> {
   return request<DocumentRead>(`/api/v1/documents/${encodeURIComponent(id)}`)
 }
 
-export function uploadDocument(file: File): Promise<DocumentRead> {
+export function uploadDocument(file: File, folderId?: string): Promise<DocumentRead> {
   const body = new FormData()
   body.append('file', file)
+  if (folderId) body.append('folder_id', folderId)
   return request<DocumentRead>('/api/v1/documents', { method: 'POST', body })
 }
 
+/** Mueve el documento a la papelera (se puede restaurar). */
 export function deleteDocument(id: string): Promise<void> {
   return request<void>(`/api/v1/documents/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+/** Mueve el documento a una carpeta, o lo saca de ella con `null`. */
+export function moveDocument(id: string, folderId: string | null): Promise<DocumentRead> {
+  return request<DocumentRead>(`/api/v1/documents/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ folder_id: folderId }),
+  })
+}
+
+// --- Carpetas ---------------------------------------------------------------------------
+
+export function listFolders(): Promise<Folder[]> {
+  return request<Folder[]>('/api/v1/folders')
+}
+
+export function createFolder(name: string): Promise<Folder> {
+  return request<Folder>('/api/v1/folders', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+}
+
+export function renameFolder(id: string, name: string): Promise<Folder> {
+  return request<Folder>(`/api/v1/folders/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+}
+
+/** Borra la carpeta; sus documentos quedan sin carpeta. */
+export function deleteFolder(id: string): Promise<void> {
+  return request<void>(`/api/v1/folders/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+// --- Papelera ---------------------------------------------------------------------------
+
+export function listTrash(): Promise<TrashPage> {
+  return request<TrashPage>('/api/v1/trash?limit=100')
+}
+
+export function restoreDocument(id: string): Promise<DocumentRead> {
+  return request<DocumentRead>(`/api/v1/trash/${encodeURIComponent(id)}/restore`, {
+    method: 'POST',
+  })
+}
+
+/** Borra del todo un documento de la papelera. No se puede deshacer. */
+export function deletePermanently(id: string): Promise<void> {
+  return request<void>(`/api/v1/trash/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export function emptyTrash(): Promise<void> {
+  return request<void>('/api/v1/trash', { method: 'DELETE' })
 }
 
 /** URL del PDF original. Los visores de PDF del navegador abren `#page=N` en esa página. */
@@ -80,11 +140,8 @@ export function reprocessDocument(id: string): Promise<DocumentRead> {
   })
 }
 
-/** Limita la pregunta a un documento y, opcionalmente, a una de sus páginas. */
-export interface QueryScope {
-  documentId: string
-  pageNumber?: number
-}
+/** Limita la pregunta a una carpeta, o a un documento y opcionalmente una de sus páginas. */
+export type QueryScope = { folderId: string } | { documentId: string; pageNumber?: number }
 
 export function askQuestion(question: string, scope?: QueryScope): Promise<QueryResponse> {
   return request<QueryResponse>('/api/v1/query', {
@@ -92,8 +149,9 @@ export function askQuestion(question: string, scope?: QueryScope): Promise<Query
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       question,
-      document_id: scope?.documentId,
-      page_number: scope?.pageNumber,
+      folder_id: scope && 'folderId' in scope ? scope.folderId : undefined,
+      document_id: scope && 'documentId' in scope ? scope.documentId : undefined,
+      page_number: scope && 'documentId' in scope ? scope.pageNumber : undefined,
     }),
   })
 }

@@ -15,6 +15,16 @@ export interface DocumentRead {
   processed_at: string | null
   // Resumen generado por un LLM (null si no se pudo generar): mostrar como texto.
   summary: string | null
+  folder_id: string | null
+  // En la papelera desde esta fecha; null si está activo.
+  deleted_at: string | null
+}
+
+export interface Folder {
+  id: string
+  name: string
+  created_at: string
+  document_count: number
 }
 
 export interface DocumentPage {
@@ -22,6 +32,11 @@ export interface DocumentPage {
   total: number
   limit: number
   offset: number
+}
+
+export interface TrashPage extends DocumentPage {
+  // Días que se conservan en la papelera antes de borrarse del todo.
+  retention_days: number
 }
 
 export interface Source {

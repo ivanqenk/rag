@@ -5,21 +5,31 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.services.retrieval import Scope
+
 
 class SearchScope(BaseModel):
-    """Limita la búsqueda a un documento o a una de sus páginas. Solo puede reducir el
-    contexto, nunca ampliarlo (ni el costo de la consulta)."""
+    """Limita la búsqueda a una carpeta, a un documento o a una de sus páginas. Solo puede
+    reducir el contexto, nunca ampliarlo (ni el costo de la consulta)."""
 
+    folder_id: UUID | None = Field(default=None, description="Buscar solo en esta carpeta")
     document_id: UUID | None = Field(default=None, description="Buscar solo en este documento")
     page_number: int | None = Field(
         default=None, ge=1, description="Buscar solo en esta página (requiere document_id)"
     )
 
     @model_validator(mode="after")
-    def _page_requires_document(self) -> "SearchScope":
+    def _consistent_scope(self) -> "SearchScope":
         if self.page_number is not None and self.document_id is None:
             raise ValueError("page_number requiere document_id")
+        if self.folder_id is not None and self.document_id is not None:
+            raise ValueError("Indica una carpeta o un documento, no ambos")
         return self
+
+    def to_scope(self) -> Scope:
+        return Scope(
+            folder_id=self.folder_id, document_id=self.document_id, page_number=self.page_number
+        )
 
 
 class QueryRequest(SearchScope):

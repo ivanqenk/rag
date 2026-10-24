@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { ApiError, askQuestion, documentFileUrl, getDocument } from '../api/client'
+import { ApiError, askQuestion, documentFileUrl, getDocument, listFolders } from '../api/client'
 import { routes } from '../router'
-import type { QueryResponse } from '../types/api'
+import type { Folder, QueryResponse } from '../types/api'
 
 // Debe coincidir con MAX_QUERY_CHARS del backend.
 const MAX_QUESTION_CHARS = 1000
@@ -18,12 +18,32 @@ type ScopeState =
   | { kind: 'ready'; filename: string }
   | { kind: 'error'; message: string }
 
-/** Sin `documentId` pregunta a todos los documentos; con él, solo a ese (y a una página). */
-export function AskPage({ documentId }: { documentId?: string }) {
+/**
+ * Con `documentId` pregunta solo a ese documento (y opcionalmente a una página). Si no, deja
+ * elegir entre todos los documentos y una carpeta (`folderId` la preselecciona).
+ */
+export function AskPage({ documentId, folderId }: { documentId?: string; folderId?: string }) {
   const [question, setQuestion] = useState('')
   const [page, setPage] = useState('')
   const [state, setState] = useState<AskState>({ kind: 'idle' })
   const [scope, setScope] = useState<ScopeState>({ kind: 'loading' })
+  const [folders, setFolders] = useState<Folder[] | null>(null)
+  const [selectedFolder, setSelectedFolder] = useState(folderId ?? '')
+
+  useEffect(() => {
+    if (documentId) return
+    let cancelled = false
+    listFolders()
+      .then((items) => !cancelled && setFolders(items))
+      // Sin carpetas se puede seguir preguntando a todos los documentos.
+      .catch(() => !cancelled && setFolders([]))
+    return () => {
+      cancelled = true
+    }
+  }, [documentId])
+
+  const missingFolder =
+    folders !== null && selectedFolder !== '' && !folders.some((f) => f.id === selectedFolder)
 
   useEffect(() => {
     if (!documentId) return
@@ -56,7 +76,11 @@ export function AskPage({ documentId }: { documentId?: string }) {
     try {
       const response = await askQuestion(
         trimmed,
-        documentId ? { documentId, pageNumber: page ? pageNumber : undefined } : undefined,
+        documentId
+          ? { documentId, pageNumber: page ? pageNumber : undefined }
+          : selectedFolder
+            ? { folderId: selectedFolder }
+            : undefined,
       )
       setState({ kind: 'answered', response })
     } catch (error) {
@@ -68,7 +92,7 @@ export function AskPage({ documentId }: { documentId?: string }) {
   }
 
   const loading = state.kind === 'loading'
-  const scopeBlocked = documentId !== undefined && scope.kind !== 'ready'
+  const scopeBlocked = (documentId !== undefined && scope.kind !== 'ready') || missingFolder
 
   return (
     <>
@@ -106,6 +130,29 @@ export function AskPage({ documentId }: { documentId?: string }) {
             )}
             <a href={routes.ask}>Preguntar a todos los documentos</a>
           </div>
+        )}
+        {!documentId && folders !== null && folders.length > 0 && (
+          <div className="scope">
+            <label htmlFor="folder">Buscar en</label>
+            <select
+              id="folder"
+              value={selectedFolder}
+              onChange={(event) => setSelectedFolder(event.target.value)}
+            >
+              <option value="">Todos los documentos</option>
+              {folders.map((folder) => (
+                <option key={folder.id} value={folder.id}>
+                  {folder.name} ({folder.document_count})
+                </option>
+              ))}
+              {missingFolder && <option value={selectedFolder}>Carpeta desconocida</option>}
+            </select>
+          </div>
+        )}
+        {missingFolder && (
+          <p className="error" role="alert">
+            La carpeta no existe. Elige otra o pregunta a todos los documentos.
+          </p>
         )}
         <form onSubmit={onSubmit}>
           <label htmlFor="question">Pregunta</label>

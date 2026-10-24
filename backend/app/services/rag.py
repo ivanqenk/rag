@@ -8,7 +8,7 @@ Las preguntas de resumen ("¿de qué trata?") no usan la búsqueda: usan como co
 resúmenes generados al procesar cada documento (ver services/summaries.py).
 
 Qué fragmentos lee el LLM depende de RAG_STRATEGY (simple, rerank o progressive; ver
-core/config.py). La pregunta puede limitarse a un documento o a una de sus páginas.
+core/config.py). La pregunta puede limitarse a una carpeta, a un documento o a una página.
 """
 
 import logging
@@ -145,31 +145,26 @@ def answer_question(
     llm: LLMProvider,
     settings: Settings,
     question: str,
-    document_id: UUID | None = None,
-    page_number: int | None = None,
+    scope: retrieval.Scope = retrieval.EVERYWHERE,
 ) -> RagAnswer:
-    """Responde con los documentos (o solo con `document_id`, o solo con una de sus páginas)."""
+    """Responde con los documentos, o solo con los de `scope` (carpeta, documento o página)."""
     started = time.perf_counter()
     usage = _Usage()
     attempts: list[list[tuple[ContextChunk, Source]]] = []
     retrieved = 0
     # Con una página concreta la pregunta es sobre esa página, no sobre todo el documento.
-    if page_number is None and is_summary_question(question):
-        documents = DocumentRepository(session).list_summaries(MAX_SUMMARY_DOCUMENTS)
-        summaries = [
-            (d.id, d.original_filename, d.summary or "")
-            for d in documents
-            if document_id is None or d.id == document_id
-        ]
+    if scope.page_number is None and is_summary_question(question):
+        documents = DocumentRepository(session).list_summaries(
+            MAX_SUMMARY_DOCUMENTS, folder_id=scope.folder_id, document_id=scope.document_id
+        )
+        summaries = [(d.id, d.original_filename, d.summary or "") for d in documents]
         summary_context = build_summary_context(summaries, settings.rag_max_context_chars)
         if summary_context:
             attempts = [summary_context]
             retrieved = len(summaries)
     if not attempts:
         # Pregunta normal, o de resumen sin resúmenes disponibles: búsqueda RAG habitual.
-        results, groups = _select_chunks(
-            session, embedder, llm, settings, question, document_id, page_number, usage
-        )
+        results, groups = _select_chunks(session, embedder, llm, settings, question, scope, usage)
         retrieved = len(results)
         for group in groups:
             context = build_context(group, settings.rag_max_context_chars)
@@ -216,8 +211,7 @@ def _select_chunks(
     llm: LLMProvider,
     settings: Settings,
     question: str,
-    document_id: UUID | None,
-    page_number: int | None,
+    scope: retrieval.Scope,
     usage: _Usage,
 ) -> tuple[list[retrieval.SearchResult], list[list[retrieval.SearchResult]]]:
     """Busca y decide qué grupos de fragmentos lee el LLM, en orden, según RAG_STRATEGY."""
@@ -229,9 +223,7 @@ def _select_chunks(
         wanted = top_k * 4  # 5 + 5 + 10 con el valor por defecto
     else:
         wanted = top_k
-    results = retrieval.search(
-        session, embedder, settings, question, wanted, document_id, page_number
-    )
+    results = retrieval.search(session, embedder, settings, question, wanted, scope)
 
     if strategy == "progressive":
         windows = [(0, top_k), (top_k, top_k * 2), (top_k * 2, top_k * 4)]

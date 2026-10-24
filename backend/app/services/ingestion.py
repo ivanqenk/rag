@@ -63,6 +63,7 @@ def register_upload(
     settings: Settings,
     filename: str | None,
     data: bytes,
+    folder_id: UUID | None = None,
 ) -> Document:
     """Valida el archivo, lo guarda y crea el registro con estado `pending`.
 
@@ -85,6 +86,7 @@ def register_upload(
             content_type="application/pdf",
             size_bytes=len(data),
             checksum_sha256=hashlib.sha256(data).hexdigest(),
+            folder_id=folder_id,
         )
     except Exception:
         # Sin registro en la base, el archivo quedaría huérfano.

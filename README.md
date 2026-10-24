@@ -15,7 +15,7 @@ extracto. Si los documentos no contienen la respuesta, lo dice en lugar de inven
 
 | Biblioteca | Pregunta con fuentes |
 |---|---|
-| ![Biblioteca con tres documentos procesados](docs/images/biblioteca.png) | ![Respuesta con la fuente: documento, página y extracto](docs/images/pregunta.png) |
+| ![Biblioteca con carpetas y documentos procesados](docs/images/biblioteca.png) | ![Respuesta con la fuente: documento, página y extracto](docs/images/pregunta.png) |
 | **Detalle con resumen** | **Sin evidencia (modo oscuro)** |
 | ![Detalle de un documento con su resumen](docs/images/documento.png) | ![Aviso de que los documentos no contienen la respuesta](docs/images/sin-evidencia.png) |
 
@@ -169,14 +169,33 @@ Para borrarlos por completo: `docker compose down -v`.
 | Método | Ruta                            | Descripción                                             |
 |--------|---------------------------------|---------------------------------------------------------|
 | GET    | `/health`                       | Estado básico de la aplicación                          |
-| POST   | `/api/v1/documents`             | Sube un PDF (`multipart/form-data`, campo `file`) y lo procesa |
-| GET    | `/api/v1/documents`             | Lista paginada (`limit` 1–100, por defecto 20; `offset` ≥ 0), más recientes primero |
+| POST   | `/api/v1/documents`             | Sube un PDF (`multipart/form-data`, campo `file`; opcional `folder_id`) y lo procesa |
+| GET    | `/api/v1/documents`             | Lista paginada (`limit` 1–100, por defecto 20; `offset` ≥ 0; opcional `folder_id`), más recientes primero. No incluye la papelera |
 | GET    | `/api/v1/documents/{id}`        | Metadatos y estado de un documento (`404` si no existe, `422` si el id no es UUID) |
 | GET    | `/api/v1/documents/{id}/file`   | El PDF original para verlo en el navegador (`#page=N` abre esa página) |
-| DELETE | `/api/v1/documents/{id}`        | Borra el documento, sus fragmentos, embeddings y el archivo (`204`) |
+| PATCH  | `/api/v1/documents/{id}`        | Mueve el documento: `{"folder_id": "<id>"}` o `{"folder_id": null}` |
+| DELETE | `/api/v1/documents/{id}`        | Lo manda a la **papelera** (`204`); se puede restaurar durante 30 días |
 | POST   | `/api/v1/documents/{id}/reprocess` | Vuelve a procesar (tras un fallo o un cambio de modelo de embeddings) |
-| POST   | `/api/v1/search`                | Búsqueda híbrida de fragmentos (sin LLM)                |
-| POST   | `/api/v1/query`                 | Pregunta → respuesta del LLM con fuentes verificables   |
+| GET    | `/api/v1/folders`               | Carpetas, por nombre, con su número de documentos       |
+| POST   | `/api/v1/folders`               | Crea una carpeta `{"name": "…"}` (`409` si el nombre ya existe, sin distinguir mayúsculas) |
+| PATCH  | `/api/v1/folders/{id}`          | Renombra la carpeta                                     |
+| DELETE | `/api/v1/folders/{id}`          | Borra la carpeta; sus documentos **no** se borran: quedan sin carpeta |
+| GET    | `/api/v1/trash`                 | Documentos de la papelera, con `retention_days`         |
+| POST   | `/api/v1/trash/{id}/restore`    | Restaura un documento de la papelera (sin reprocesarlo) |
+| DELETE | `/api/v1/trash/{id}`            | Lo borra del todo: registro, fragmentos, embeddings y archivo |
+| DELETE | `/api/v1/trash`                 | Vacía la papelera                                       |
+| POST   | `/api/v1/search`                | Búsqueda híbrida de fragmentos (sin LLM); opcional `folder_id`, o `document_id` y `page_number` |
+| POST   | `/api/v1/query`                 | Pregunta → respuesta del LLM con fuentes verificables; mismo ámbito opcional que `/search` |
+
+**Carpetas** (un nivel, sin subcarpetas): cada documento puede estar en una o en ninguna. Las
+preguntas pueden ir a todos los documentos, a una carpeta (`folder_id`), a un documento
+(`document_id`) o a una página (`document_id` + `page_number`); el filtro se aplica dentro de
+la consulta SQL, así que el LLM nunca ve fragmentos de fuera.
+
+**Papelera**: eliminar un documento lo oculta de la biblioteca, las búsquedas y las respuestas,
+pero conserva archivo, fragmentos y embeddings, así que restaurarlo es instantáneo y gratis. A
+los `TRASH_RETENTION_DAYS` (30) días se borra del todo; el backend lo comprueba al arrancar y
+después cada hora.
 
 ### Subir un PDF
 
@@ -445,3 +464,7 @@ Metodología, resultados e interpretación en [`docs/rag-evaluation.md`](docs/ra
   palabras); ver [hallazgos de la evaluación](docs/rag-evaluation.md#hallazgos-y-mejoras-posibles).
 - **Sin historial de conversación**: cada pregunta es independiente.
 - **Almacenamiento local**: los archivos viven en un volumen del servidor (S3 en la Fase 8).
+- **La purga de la papelera corre dentro del backend**: si el servidor está apagado, los
+  documentos vencidos se borran al volver a arrancarlo. En la Fase 8 sería un trabajo
+  programado (p. ej. EventBridge + un worker).
+- **Carpetas de un solo nivel** y sin permisos: cualquiera que use la app ve todas.
