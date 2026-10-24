@@ -25,6 +25,7 @@ import os
 import statistics
 import tempfile
 import time
+import unicodedata
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -112,10 +113,16 @@ def _cost(settings: Settings, input_tokens: int, output_tokens: int) -> float:
     ) / 1_000_000
 
 
+def _fold(text: str) -> str:
+    """Minúsculas y sin tildes: «Desconéctalo» debe contar como «desconect»."""
+    decomposed = unicodedata.normalize("NFKD", text.lower())
+    return "".join(c for c in decomposed if not unicodedata.combining(c))
+
+
 def _includes(answer: str, groups: list[list[str]]) -> bool:
     """Cada grupo es una lista de alternativas; todos los grupos deben aparecer."""
-    lowered = answer.lower()
-    return all(any(option.lower() in lowered for option in group) for group in groups)
+    folded = _fold(answer)
+    return all(any(_fold(option) in folded for option in group) for group in groups)
 
 
 def _rate(values: list[bool]) -> float | None:
@@ -222,7 +229,7 @@ def _evaluate_question(
         content_correct = not answer.insufficient_evidence and _includes(
             answer.answer, spec.get("must_include", [])
         )
-    forbidden = any(t.lower() in answer.answer.lower() for t in spec.get("must_not_include", []))
+    forbidden = any(_fold(t) in _fold(answer.answer) for t in spec.get("must_not_include", []))
 
     return QuestionResult(
         id=spec["id"],

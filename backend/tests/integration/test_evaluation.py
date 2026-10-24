@@ -13,7 +13,7 @@ from sqlalchemy import Engine, text
 from app.core.config import Settings
 from app.services.embeddings import FakeEmbeddingProvider
 from app.services.llm import FakeLLMProvider
-from evaluation.run import DATASET_PATH, run_evaluation
+from evaluation.run import DATASET_PATH, _includes, run_evaluation
 
 
 @pytest.fixture
@@ -54,3 +54,9 @@ def test_dataset_is_consistent() -> None:
         assert question["must_include"]
         if question["page"] is not None:
             assert 1 <= question["page"] <= len(document["pages"])
+
+
+def test_content_check_ignores_case_and_accents() -> None:
+    assert _includes("Desconéctalo de la red.", [["desconect"]])
+    assert _includes("Son VEINTITRÉS días", [["23", "veintitres"]])
+    assert not _includes("Apágalo.", [["desconect"]])

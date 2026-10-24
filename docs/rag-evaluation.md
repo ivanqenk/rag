@@ -87,11 +87,38 @@ palabras y entender el significado. Se abstiene bien en las preguntas sin respue
 porque no encuentra casi nada en general (81 % de abstenciones falsas). La «resistencia» a la
 inyección no significa nada aquí: el LLM falso no lee instrucciones.
 
-### OpenAI (`text-embedding-3-small` + `gpt-6-luna`)
+### OpenAI (`text-embedding-3-small` + `gpt-6-luna`), 2026-10-24, umbral 0.2
 
-**Pendiente:** requiere saldo en la cuenta de OpenAI. Cuando se ejecute, anotar aquí las
-métricas, la fecha y, con `min_similarity_answerable` y `max_similarity_unanswerable`,
-calibrar `RETRIEVAL_MIN_SCORE` (hoy 0.25, sin calibrar).
+| Métrica | Valor |
+|---|---|
+| `retrieval_hit_rate` | 1.0 |
+| `citation_accuracy` | 1.0 |
+| `content_accuracy` | 1.0 |
+| `correct_abstention_rate` | 1.0 |
+| `false_abstention_rate` | 0.0 |
+| `injection_resisted` | 1.0 |
+| `latency_ms_p50` / `max` | 1590 ms / 2771 ms |
+| `query_cost_usd_avg` | $0.00012 |
+| `total_cost_usd` (25 preguntas + 5 resúmenes) | $0.0035 |
+| `min_similarity_answerable` | 0.417 |
+| `max_similarity_unanswerable` | 0.578 |
+
+**Interpretación.** Las 25 preguntas pasan: recupera la página correcta incluso con otras
+palabras y entre idiomas, cita bien, no obedece al documento malicioso y se abstiene en las
+cuatro preguntas sin respuesta. En la primera ejecución `content_accuracy` dio 0.952 por un
+fallo **del evaluador**, no del sistema: la respuesta «Desconéctalo…» no contenía «desconect»
+porque se comparaba con tildes. Se corrigió la comparación (minúsculas y sin tildes) y se
+volvió a ejecutar.
+
+**Calibración de `RETRIEVAL_MIN_SCORE`.** Las similitudes se **solapan**: hay preguntas sin
+respuesta del mismo ámbito con similitud 0.578 (el documento habla de algo parecido) y
+preguntas con respuesta desde 0.417. Ningún umbral separa ambos grupos, así que el umbral
+**no puede ser** el mecanismo de abstención: esa decisión la toma el LLM con
+`insufficient_evidence`, y la verificación de citas en el servidor la respalda. El umbral
+cumple otro papel: descartar lo claramente ajeno (la pregunta sin relación dio 0.09) sin
+llamar al LLM. Por eso se mantiene **0.25** por defecto: queda muy por debajo de la menor
+similitud con respuesta (0.417), con margen para preguntas peor formuladas, y muy por encima
+de lo ajeno. Con un conjunto mayor convendría revisarlo.
 
 ## Hallazgos y mejoras posibles
 
@@ -99,7 +126,8 @@ calibrar `RETRIEVAL_MIN_SCORE` (hoy 0.25, sin calibrar).
    fragmento contenga **todas** las palabras de la pregunta («cuántos», «tengo», «al»…), lo que
    casi nunca ocurre con preguntas naturales. Mejora posible: combinar los términos con OR y
    ordenar por `ts_rank`, o usar un diccionario con palabras vacías (`spanish`), y medir el
-   efecto con esta evaluación.
+   efecto con esta evaluación. Con OpenAI la búsqueda vectorial basta en este conjunto, pero
+   las palabras clave siguen siendo la red de seguridad para códigos y nombres exactos.
 2. **Las preguntas de resumen dependen de una heurística** de patrones (ADR 0003).
 3. **El conjunto es pequeño** (25 preguntas, 5 documentos): sirve para detectar regresiones
    y comparar cambios, no para afirmar una precisión general del sistema.

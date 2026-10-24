@@ -346,6 +346,10 @@ uv run python -m evaluation.run                     # gratis, con proveedores fa
 uv run python -m evaluation.run --provider openai   # real, ~$0.01
 ```
 
+**Resultado con OpenAI (2026-10-24):** 25/25 preguntas correctas (recuperación, citas, datos,
+abstención e inyección), mediana de 1.6 s por pregunta y $0.0035 en total. Con un conjunto
+tan pequeño esto detecta regresiones; no demuestra una precisión general.
+
 Metodología, resultados e interpretación en [`docs/rag-evaluation.md`](docs/rag-evaluation.md).
 
 ## Frontend
@@ -407,8 +411,9 @@ Metodología, resultados e interpretación en [`docs/rag-evaluation.md`](docs/ra
   Tablas, columnas y figuras se extraen como texto plano, sin estructura.
 - **Preguntas de resumen detectadas con una heurística** de patrones; con varios documentos,
   «¿de qué trata?» no indica cuál.
-- **El umbral de relevancia (`RETRIEVAL_MIN_SCORE`) no está calibrado** con el proveedor real
-  (requiere ejecutar la evaluación con OpenAI).
+- **La abstención depende del LLM**, no del umbral: preguntas sin respuesta del mismo ámbito
+  tienen tanta similitud como las que sí la tienen (ver
+  [calibración](docs/rag-evaluation.md#openai-text-embedding-3-small--gpt-6-luna-2026-10-24-umbral-02)).
 - **La búsqueda por palabras clave aporta poco** con preguntas naturales (exige todas las
   palabras); ver [hallazgos de la evaluación](docs/rag-evaluation.md#hallazgos-y-mejoras-posibles).
 - **Sin historial de conversación**: cada pregunta es independiente.

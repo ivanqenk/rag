@@ -26,7 +26,7 @@ persona que despliega · 💼 solo necesario si el proyecto pasa a ser un SaaS m
 | Práctica | Estado | Dónde / por qué |
 |---|---|---|
 | Mismo modelo para documentos y preguntas; solo se comparan vectores del modelo activo | ✅ | Fase 4, `services/retrieval.py` |
-| Umbral mínimo de similitud además del top-k | ✅ | Fase 4, `RETRIEVAL_MIN_SCORE`. La evaluación informa los valores para calibrarlo; pendiente de ejecutarla con OpenAI (👤 saldo) |
+| Umbral mínimo de similitud además del top-k | ✅ | Fase 4, `RETRIEVAL_MIN_SCORE`. Calibrado con la evaluación real: filtra lo ajeno; la abstención la decide el LLM porque las similitudes se solapan |
 | Top-k acotado por el servidor; el cliente no puede pedir más | ✅ | Fase 4 |
 | Búsqueda híbrida: vectorial + texto completo (`tsvector`), fusionadas con RRF | ✅ | Fase 4. Los embeddings fallan con nombres propios, códigos y números exactos |
 | Búsqueda exacta primero; índice HNSW solo cuando el volumen lo justifique | ✅ | Fase 4: sin índice vectorial. Un índice aproximado puede perder resultados |
