@@ -19,9 +19,8 @@ extracto. Si los documentos no contienen la respuesta, lo dice en lugar de inven
 | **Detalle con resumen** | **Sin evidencia (modo oscuro)** |
 | ![Detalle de un documento con su resumen](docs/images/documento.png) | ![Aviso de que los documentos no contienen la respuesta](docs/images/sin-evidencia.png) |
 
-<sub>Capturas con documentos ficticios del conjunto de evaluación y proveedores **falsos**
-(sin IA): por eso la «respuesta» y el «resumen» son el inicio del texto encontrado. Con OpenAI
-son texto redactado por el LLM.</sub>
+<sub>Capturas con documentos ficticios del conjunto de evaluación y OpenAI
+(`text-embedding-3-small` + `gpt-6-luna`): la respuesta y el resumen los redacta el LLM.</sub>
 
 ## Inicio rápido (Docker)
 
@@ -418,5 +417,3 @@ Metodología, resultados e interpretación en [`docs/rag-evaluation.md`](docs/ra
   palabras); ver [hallazgos de la evaluación](docs/rag-evaluation.md#hallazgos-y-mejoras-posibles).
 - **Sin historial de conversación**: cada pregunta es independiente.
 - **Almacenamiento local**: los archivos viven en un volumen del servidor (S3 en la Fase 8).
-- **Las capturas usan los proveedores falsos**: falta añadir capturas con respuestas reales
-  del LLM (requiere saldo en OpenAI).
