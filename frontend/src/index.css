@@ -95,7 +95,9 @@ textarea {
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 0.55rem 0.4rem; border-bottom: 1px solid var(--border); vertical-align: top; }
 th { color: var(--muted); font-weight: 600; font-size: 0.85rem; }
-td.actions { display: flex; gap: 0.4rem; justify-content: flex-end; }
+/* Sin display:flex en la celda: rompería su comportamiento de celda (bordes desalineados). */
+td.actions { text-align: right; white-space: nowrap; }
+td.actions button + button { margin-left: 0.4rem; }
 .row-error { color: var(--danger); font-size: 0.85rem; }
 
 .badge { display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600; border: 1px solid; }

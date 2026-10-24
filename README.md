@@ -13,6 +13,16 @@ extracto. Si los documentos no contienen la respuesta, lo dice en lugar de inven
 **Documentación:** [arquitectura](docs/architecture.md) · [evaluación del RAG](docs/rag-evaluation.md)
 · [buenas prácticas](docs/rag-best-practices.md) · [decisiones (ADR)](docs/decisions/)
 
+| Biblioteca | Pregunta con fuentes |
+|---|---|
+| ![Biblioteca con tres documentos procesados](docs/images/biblioteca.png) | ![Respuesta con la fuente: documento, página y extracto](docs/images/pregunta.png) |
+| **Detalle con resumen** | **Sin evidencia (modo oscuro)** |
+| ![Detalle de un documento con su resumen](docs/images/documento.png) | ![Aviso de que los documentos no contienen la respuesta](docs/images/sin-evidencia.png) |
+
+<sub>Capturas con documentos ficticios del conjunto de evaluación y proveedores **falsos**
+(sin IA): por eso la «respuesta» y el «resumen» son el inicio del texto encontrado. Con OpenAI
+son texto redactado por el LLM.</sub>
+
 ## Inicio rápido (Docker)
 
 Solo necesitas Docker con Docker Compose.
@@ -28,7 +38,9 @@ Edita `.env` y elige una opción:
   configura un límite de gasto en platform.openai.com.
 - **Sin clave ni costo** (para comprobar el flujo): `EMBEDDINGS_PROVIDER=fake`,
   `LLM_PROVIDER=fake` y `RETRIEVAL_MIN_SCORE=0.2`. La búsqueda solo encuentra palabras exactas
-  y la «respuesta» es el inicio del fragmento encontrado.
+  (pregunta con palabras que aparezcan tal cual en el PDF), la «respuesta» es el inicio del
+  fragmento encontrado y, por coincidencias del hash que usa, alguna pregunta sin relación
+  puede devolver un fragmento en vez de abstenerse. Con OpenAI esto no ocurre.
 
 ```bash
 docker compose up --build     # la primera vez tarda unos minutos
@@ -401,4 +413,5 @@ Metodología, resultados e interpretación en [`docs/rag-evaluation.md`](docs/ra
   palabras); ver [hallazgos de la evaluación](docs/rag-evaluation.md#hallazgos-y-mejoras-posibles).
 - **Sin historial de conversación**: cada pregunta es independiente.
 - **Almacenamiento local**: los archivos viven en un volumen del servidor (S3 en la Fase 8).
-- **Capturas de pantalla**: pendientes.
+- **Las capturas usan los proveedores falsos**: falta añadir capturas con respuestas reales
+  del LLM (requiere saldo en OpenAI).
