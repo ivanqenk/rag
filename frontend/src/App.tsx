@@ -1,3 +1,4 @@
+import { ThemeToggle } from './components/ThemeToggle'
 import { AskPage } from './pages/AskPage'
 import { DocumentPage } from './pages/DocumentPage'
 import { LibraryPage } from './pages/LibraryPage'
@@ -25,6 +26,7 @@ export default function App() {
             Papelera
           </a>
         </nav>
+        <ThemeToggle />
       </header>
       <main>
         {route.name === 'library' && (

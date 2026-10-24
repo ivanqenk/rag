@@ -400,17 +400,21 @@ Metodología, resultados e interpretación en [`docs/rag-evaluation.md`](docs/ra
 
 ## Frontend
 
-- **Biblioteca:** subida por clic o arrastrando (con validación previa de tipo y tamaño), lista
-  con tamaño, fecha y estado, error de los documentos fallidos, reintentar y eliminar.
-- **Detalle de documento:** metadatos, estado y resumen generado (con botón para generarlo si
-  falta).
-- **Preguntar:** respuesta con fuentes (documento, página y extracto) enlazadas al detalle del
-  documento, y aviso explícito cuando no hay evidencia suficiente.
+- **Biblioteca:** carpetas (crear, renombrar, eliminar, filtrar, mover documentos), subida por
+  clic o arrastrando (con validación previa de tipo y tamaño), lista con tamaño, fecha y estado,
+  error de los documentos fallidos, reintentar y eliminar (a la papelera, con confirmación).
+- **Detalle de documento:** metadatos, estado, resumen generado (con botón para generarlo si
+  falta), enlace al PDF original y «Preguntar sobre este documento» (con página opcional).
+- **Preguntar:** a todos los documentos o a una carpeta; respuesta con fuentes (documento,
+  página y extracto; la página abre el PDF en ese punto) y aviso explícito cuando no hay
+  evidencia suficiente.
+- **Papelera:** restaurar, eliminar definitivamente y vaciar, con la fecha de borrado automático.
+- **Tema claro u oscuro** a elección (claro por defecto), recordado en el navegador.
 - **Estados** de carga, vacío, error y éxito en todas las pantallas; errores comprensibles, sin
   trazas ni detalles internos.
 - **Accesibilidad básica:** etiquetas en los controles, navegación por teclado, foco visible,
   anuncios `aria-live` de los cambios de estado, estado comunicado con texto (no solo color) y
-  contraste en modo claro y oscuro.
+  contraste en ambos temas.
 - **Seguridad:** la respuesta del LLM se muestra como texto plano. Nunca se usa
   `dangerouslySetInnerHTML` ni se interpreta Markdown, porque un documento malicioso podría
   inducir al LLM a devolver HTML o enlaces que ejecuten código o filtren datos.

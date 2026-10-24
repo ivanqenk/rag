@@ -1,4 +1,5 @@
-/* Estilos mínimos. Colores con contraste AA en modo claro y oscuro. */
+/* Estilos mínimos. Tema claro por defecto y oscuro a elección del usuario (theme.ts);
+   colores con contraste AA en ambos. */
 :root {
   --bg: #f6f7f9;
   --surface: #ffffff;
@@ -11,27 +12,28 @@
   --success: #1a7f37;
   --warning-bg: #fff6e0;
   --focus: #1f5fbf;
-  color-scheme: light dark;
+  /* Controles nativos (selects, barras de desplazamiento) del mismo tema. */
+  color-scheme: light;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   line-height: 1.5;
   color: var(--text);
   background: var(--bg);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #14171c;
-    --surface: #1d2128;
-    --text: #e8eaed;
-    --muted: #a3aab5;
-    --border: #343a44;
-    --accent: #6ea8ff;
-    --accent-text: #0b1220;
-    --danger: #ff8a80;
-    --success: #6fd38a;
-    --warning-bg: #3a3020;
-    --focus: #6ea8ff;
-  }
+/* Tema oscuro: solo si el usuario lo elige (no depende del sistema operativo). */
+:root[data-theme='dark'] {
+  --bg: #14171c;
+  --surface: #1d2128;
+  --text: #e8eaed;
+  --muted: #a3aab5;
+  --border: #343a44;
+  --accent: #6ea8ff;
+  --accent-text: #0b1220;
+  --danger: #ff8a80;
+  --success: #6fd38a;
+  --warning-bg: #3a3020;
+  --focus: #6ea8ff;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -43,10 +45,13 @@ main { max-width: 960px; margin: 0 auto; padding: 1rem; display: grid; gap: 1rem
   gap: 1rem; padding: 0.75rem 1rem; background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
-.app-header h1 { font-size: 1.25rem; margin: 0; }
+.app-header h1 { font-size: 1.25rem; margin: 0 auto 0 0; }
 .app-header nav { display: flex; gap: 0.5rem; }
 .app-header nav a { padding: 0.4rem 0.8rem; border-radius: 6px; text-decoration: none; color: var(--text); }
 .app-header nav a[aria-current='page'] { background: var(--accent); color: var(--accent-text); }
+.theme-toggle { display: flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+.theme-toggle button { background: transparent; border: none; border-radius: 0; padding: 0.3rem 0.75rem; font-size: 0.9rem; color: var(--text); }
+.theme-toggle button[aria-pressed='true'] { background: var(--accent); color: var(--accent-text); }
 .app-footer { text-align: center; color: var(--muted); font-size: 0.85rem; padding: 1.5rem 1rem; }
 
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.25rem; }
