@@ -29,6 +29,12 @@ describe('cliente de la API', () => {
     await expect(listDocuments()).rejects.toThrow('Error del servidor. Inténtalo de nuevo más tarde.')
   })
 
+  it('explica el 413 de nginx (página HTML) como archivo demasiado grande', async () => {
+    mockFetch(new Response('<html>413 Request Entity Too Large</html>', { status: 413 }))
+
+    await expect(listDocuments()).rejects.toThrow('El archivo es demasiado grande.')
+  })
+
   it('traduce un fallo de red a un mensaje comprensible', async () => {
     mockFetch(new TypeError('Failed to fetch'))
 

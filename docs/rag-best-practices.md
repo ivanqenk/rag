@@ -26,11 +26,11 @@ persona que despliega · 💼 solo necesario si el proyecto pasa a ser un SaaS m
 | Práctica | Estado | Dónde / por qué |
 |---|---|---|
 | Mismo modelo para documentos y preguntas; solo se comparan vectores del modelo activo | ✅ | Fase 4, `services/retrieval.py` |
-| Umbral mínimo de similitud además del top-k | ✅ | Fase 4, `RETRIEVAL_MIN_SCORE`. Debe calibrarse con el conjunto de evaluación |
+| Umbral mínimo de similitud además del top-k | ✅ | Fase 4, `RETRIEVAL_MIN_SCORE`. La evaluación informa los valores para calibrarlo; pendiente de ejecutarla con OpenAI (👤 saldo) |
 | Top-k acotado por el servidor; el cliente no puede pedir más | ✅ | Fase 4 |
 | Búsqueda híbrida: vectorial + texto completo (`tsvector`), fusionadas con RRF | ✅ | Fase 4. Los embeddings fallan con nombres propios, códigos y números exactos |
 | Búsqueda exacta primero; índice HNSW solo cuando el volumen lo justifique | ✅ | Fase 4: sin índice vectorial. Un índice aproximado puede perder resultados |
-| Reranking con un segundo modelo | 🔜 | OpenAI no ofrece API de reranking; se evaluará en la Fase 7 con datos de evaluación |
+| Reranking con un segundo modelo | 💼 | OpenAI no ofrece API de reranking. Mejora futura; medir su efecto con `evaluation/run.py` antes de adoptarlo |
 | Filtrar permisos **dentro** de la consulta SQL, nunca después | 💼 | Ver «Aislamiento entre clientes» |
 
 ## 3. Generación
@@ -79,9 +79,9 @@ persona que despliega · 💼 solo necesario si el proyecto pasa a ser un SaaS m
 |---|---|---|
 | Pruebas sin llamadas de pago: proveedor falso determinista | ✅ | `FakeEmbeddingProvider` |
 | Prueba opcional separada contra el proveedor real | ✅ | `pytest -m openai`: embeddings, respuesta citada, abstención y prompt injection |
-| Conjunto de evaluación versionado (incluye preguntas sin respuesta) | 🔜 | Fase 7 |
-| Medir recuperación (recall@k) y respuesta (fidelidad, abstención) por separado | 🔜 | Fase 7 |
-| Repetir la evaluación al cambiar fragmentación, modelo, prompt o top-k | 🔜 | Fase 7 |
+| Conjunto de evaluación versionado (incluye preguntas sin respuesta) | ✅ | Fase 7, `backend/evaluation/dataset.json` (25 preguntas, incluye prompt injection) |
+| Medir recuperación (recall@k) y respuesta (fidelidad, abstención) por separado | ✅ | Fase 7, [`rag-evaluation.md`](rag-evaluation.md). La fidelidad se aproxima comprobando el dato esperado |
+| Repetir la evaluación al cambiar fragmentación, modelo, prompt o top-k | ✅ | `uv run python -m evaluation.run`; el informe registra modelos, versiones de prompt y umbral |
 
 ## 7. Operación
 

@@ -21,5 +21,35 @@ services:
       timeout: 5s
       retries: 15
 
+  # --- Entorno completo: `docker compose up --build` -----------------------------------
+  # Para desarrollar en local basta con `docker compose up -d db` y ejecutar backend y
+  # frontend fuera de Docker (ver README).
+
+  backend:
+    build: ./backend
+    env_file:
+      # Opcional: sin .env se usan los valores por defecto y los de `environment`.
+      - path: .env
+        required: false
+    environment:
+      # Dentro de la red de Compose la base de datos se llama "db", no "localhost".
+      DATABASE_URL: postgresql+psycopg://docintel:docintel@db:5432/docintel
+      STORAGE_DIR: /data/storage
+    volumes:
+      - storage:/data/storage
+    depends_on:
+      db:
+        condition: service_healthy
+    # Sin puertos publicados: solo es accesible a través del frontend (nginx).
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+
 volumes:
   pgdata:
+  storage:

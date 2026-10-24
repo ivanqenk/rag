@@ -3,8 +3,47 @@
 Aplicación web para cargar documentos PDF y hacerles preguntas en lenguaje natural mediante RAG
 (Retrieval-Augmented Generation), con respuestas que citan el documento y la página de origen.
 
-> **Estado:** Fase 6 (frontend). El flujo principal funciona de punta a punta desde el navegador. Proyecto de portafolio / aprendizaje; **no** es un servicio
+> **Estado:** MVP completo (Fase 7). Proyecto de portafolio / aprendizaje; **no** es un servicio
 > listo para producción ni para exponerse a Internet (no tiene autenticación ni rate limiting).
+
+**Qué hace:** subes PDFs; el sistema extrae su texto, lo divide en fragmentos, genera
+embeddings y un resumen de cada documento, y responde preguntas citando documento, página y
+extracto. Si los documentos no contienen la respuesta, lo dice en lugar de inventarla.
+
+**Documentación:** [arquitectura](docs/architecture.md) · [evaluación del RAG](docs/rag-evaluation.md)
+· [buenas prácticas](docs/rag-best-practices.md) · [decisiones (ADR)](docs/decisions/)
+
+## Inicio rápido (Docker)
+
+Solo necesitas Docker con Docker Compose.
+
+```bash
+git clone https://github.com/ivanqenk/rag.git && cd rag
+cp .env.example .env
+```
+
+Edita `.env` y elige una opción:
+
+- **Con OpenAI** (respuestas reales, ~$0.0004 por pregunta): escribe tu `OPENAI_API_KEY` y
+  configura un límite de gasto en platform.openai.com.
+- **Sin clave ni costo** (para comprobar el flujo): `EMBEDDINGS_PROVIDER=fake`,
+  `LLM_PROVIDER=fake` y `RETRIEVAL_MIN_SCORE=0.2`. La búsqueda solo encuentra palabras exactas
+  y la «respuesta» es el inicio del fragmento encontrado.
+
+```bash
+docker compose up --build     # la primera vez tarda unos minutos
+```
+
+Abre **<http://localhost:8080>** y comprueba el flujo principal:
+
+1. **Biblioteca** → sube un PDF con texto (no escaneado). Debe quedar en estado «Listo».
+2. Pulsa su nombre: verás sus datos y su **resumen**.
+3. **Preguntar** → haz una pregunta sobre su contenido. La respuesta muestra las fuentes con
+   página y extracto. Prueba también «¿de qué trata?» y una pregunta que el documento no
+   responda: debe decir que no hay evidencia suficiente.
+
+Para pararlo: `Ctrl+C` (o `docker compose down`). `docker compose down -v` borra también los
+documentos y la base de datos.
 
 La especificación completa está en
 [`AI_Document_Intelligence_Platform_Spec.md`](AI_Document_Intelligence_Platform_Spec.md).
@@ -24,10 +63,12 @@ La especificación completa está en
 │   │   ├── repositories/   # consultas a la base de datos
 │   │   └── services/       # lógica: almacenamiento, PDF, fragmentación, embeddings, búsqueda
 │   ├── migrations/         # migraciones Alembic (historial versionado del esquema)
+│   ├── evaluation/         # conjunto de evaluación RAG (dataset.json) y script (run.py)
 │   ├── tests/
 │   │   ├── unit/           # rápidas, sin base de datos
 │   │   ├── integration/    # contra PostgreSQL real (base docintel_test)
 │   │   └── external/       # contra APIs de pago; solo con `pytest -m openai`
+│   ├── Dockerfile          # imagen del backend (aplica migraciones al arrancar)
 │   ├── alembic.ini
 │   ├── pyproject.toml      # dependencias y configuración de herramientas
 │   └── uv.lock             # versiones exactas, para instalaciones reproducibles
@@ -38,13 +79,17 @@ La especificación completa está en
 │   │   ├── pages/          # Biblioteca, Preguntar, Detalle de documento
 │   │   ├── components/     # subida de archivos, etiqueta de estado
 │   │   └── router.ts       # navegación mínima por hash (#/biblioteca, #/preguntar…)
+│   ├── docker/nginx.conf   # sirve la app y hace de proxy de /api (con cabeceras de seguridad)
+│   ├── Dockerfile          # compila con Node y sirve con nginx sin root
 │   └── vite.config.ts      # proxy /api -> backend en desarrollo; configuración de Vitest
 ├── docs/
+│   ├── architecture.md         # componentes, flujos, modelo de datos y decisiones
+│   ├── rag-evaluation.md       # metodología y resultados de la evaluación
 │   ├── rag-best-practices.md   # buenas prácticas de RAG y su estado en el proyecto
 │   └── decisions/              # registro de decisiones técnicas (ADR)
 ├── .github/dependabot.yml  # actualizaciones automáticas de dependencias
 ├── docker/postgres/init/   # SQL que se ejecuta al crear el volumen de PostgreSQL
-├── docker-compose.yml      # PostgreSQL 17 + pgvector para desarrollo
+├── docker-compose.yml      # PostgreSQL + pgvector; con --build, también backend y frontend
 ├── .env.example
 └── README.md
 ```
@@ -52,7 +97,7 @@ La especificación completa está en
 Las buenas prácticas aplicadas y pendientes están en
 [`docs/rag-best-practices.md`](docs/rag-best-practices.md).
 
-## Requisitos
+## Requisitos para desarrollo
 
 - [uv](https://docs.astral.sh/uv/) — gestiona Python 3.12, el entorno virtual y las dependencias.
 
@@ -66,7 +111,9 @@ Las buenas prácticas aplicadas y pendientes están en
 - Docker con Docker Compose. En Windows + WSL: Docker Desktop con la integración WSL activada
   (Settings → Resources → WSL Integration).
 
-## Ejecutar en local
+## Desarrollo en local (sin Docker para backend y frontend)
+
+Recomendado para modificar el código: recarga automática al guardar.
 
 Desde la raíz del repositorio:
 
@@ -143,8 +190,12 @@ la respuesta llega cuando el documento ya está `completed` o `failed`.
 4. Se generan los embeddings de los fragmentos por lotes (`EMBEDDING_BATCH_SIZE`), con timeout y
    reintentos con backoff. Si el proveedor falla, el documento queda `failed` con
    `error_code: "embedding_error"` y se puede reprocesar.
-5. Los fragmentos, sus embeddings, el modelo que los generó (`embedding_model`) y el estado
-   `completed` se guardan en **una sola transacción**: si algo falla, no quedan datos parciales.
+5. Se genera un **resumen** del documento con el LLM (si el documento es largo, a partir de
+   fragmentos repartidos por todo él). Es opcional: si no hay LLM configurado o falla, el
+   documento se completa igualmente sin resumen.
+6. Los fragmentos, sus embeddings, el modelo que los generó (`embedding_model`), el resumen y
+   el estado `completed` se guardan en **una sola transacción**: si algo falla, no quedan datos
+   parciales.
 
 Los archivos de documentos `failed` se conservan en disco para poder reprocesarlos más adelante.
 
@@ -179,7 +230,7 @@ curl -X POST http://localhost:8000/api/v1/query \
 {
   "answer": "Cada empleado dispone de veintidós días hábiles de vacaciones al año.",
   "sources": [
-    {"document_id": "…", "filename": "manual.pdf", "page_number": 1,
+    {"document_id": "…", "filename": "manual.pdf", "page_number": 1, "source_type": "chunk",
      "chunk_id": "…", "excerpt": "Política de vacaciones. Cada empleado…", "score": 0.016}
   ],
   "insufficient_evidence": false
@@ -198,6 +249,11 @@ Cómo se genera:
 4. **Las citas se verifican en el servidor**: se descartan ids que no estaban en el contexto, y
    las fuentes devueltas (documento, página, extracto) salen de la base de datos, no del texto
    del LLM. Una respuesta sin ninguna cita válida se trata como no respaldada.
+
+**Preguntas de resumen** («¿de qué trata?», «resume…», «ideas principales», «summarize»):
+la búsqueda por similitud no sirve para ellas, así que se responden con los resúmenes de los
+documentos. Esas fuentes llegan con `source_type: "summary"`, sin página, fragmento ni score
+([ADR 0003](docs/decisions/0003-resumen-de-documentos.md)).
 
 `answer` es texto generado por un LLM: muéstralo siempre como texto, nunca como HTML.
 Costo estimado: ~$0.0004 por pregunta (ver
@@ -267,10 +323,25 @@ Las pruebas simulan `fetch`, así que no necesitan el backend. Incluyen una prue
 una respuesta del LLM con HTML malicioso (`<img onerror>`, `<script>`, imágenes Markdown) debe
 mostrarse como texto inerte.
 
+## Evaluación del RAG
+
+Un conjunto versionado de 5 documentos ficticios y 25 preguntas (datos concretos con otras
+palabras, entre idiomas, resúmenes, prompt injection y preguntas sin respuesta) mide
+recuperación, citas, contenido, abstención, latencia y costo. Desde `backend/`:
+
+```bash
+uv run python -m evaluation.run                     # gratis, con proveedores falsos
+uv run python -m evaluation.run --provider openai   # real, ~$0.01
+```
+
+Metodología, resultados e interpretación en [`docs/rag-evaluation.md`](docs/rag-evaluation.md).
+
 ## Frontend
 
 - **Biblioteca:** subida por clic o arrastrando (con validación previa de tipo y tamaño), lista
   con tamaño, fecha y estado, error de los documentos fallidos, reintentar y eliminar.
+- **Detalle de documento:** metadatos, estado y resumen generado (con botón para generarlo si
+  falta).
 - **Preguntar:** respuesta con fuentes (documento, página y extracto) enlazadas al detalle del
   documento, y aviso explícito cuando no hay evidencia suficiente.
 - **Estados** de carga, vacío, error y éxito en todas las pantallas; errores comprensibles, sin
@@ -313,3 +384,21 @@ mostrarse como texto inerte.
 | oxlint | dev | Linter (incluido en la plantilla oficial de Vite) |
 | vitest, jsdom | dev | Ejecutor de pruebas y DOM simulado |
 | @testing-library/react, user-event, jest-dom | dev | Probar componentes como los usaría una persona |
+
+## Limitaciones conocidas
+
+- **Sin autenticación, autorización ni rate limiting**: todos los documentos son visibles para
+  cualquiera que acceda. No exponer a Internet.
+- **Procesamiento síncrono**: la subida espera a que termine el procesamiento; un PDF grande
+  con OpenAI puede tardar decenas de segundos. La Fase 8 lo mueve a una cola con un worker.
+- **PDF escaneados no soportados** (sin OCR): quedan `failed` con un mensaje explicativo.
+  Tablas, columnas y figuras se extraen como texto plano, sin estructura.
+- **Preguntas de resumen detectadas con una heurística** de patrones; con varios documentos,
+  «¿de qué trata?» no indica cuál.
+- **El umbral de relevancia (`RETRIEVAL_MIN_SCORE`) no está calibrado** con el proveedor real
+  (requiere ejecutar la evaluación con OpenAI).
+- **La búsqueda por palabras clave aporta poco** con preguntas naturales (exige todas las
+  palabras); ver [hallazgos de la evaluación](docs/rag-evaluation.md#hallazgos-y-mejoras-posibles).
+- **Sin historial de conversación**: cada pregunta es independiente.
+- **Almacenamiento local**: los archivos viven en un volumen del servidor (S3 en la Fase 8).
+- **Capturas de pantalla**: pendientes.

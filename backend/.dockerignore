@@ -1,0 +1,10 @@
+# Lo que no debe entrar en la imagen (ni en el contexto de construcción).
+.venv/
+storage/
+evaluation/results/
+**/__pycache__/
+.pytest_cache/
+.ruff_cache/
+tests/
+.env
+*.pdf

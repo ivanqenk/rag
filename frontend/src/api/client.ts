@@ -42,6 +42,8 @@ async function errorMessage(response: Response): Promise<string> {
   } catch {
     // Respuesta sin JSON (p. ej. un proxy caído): se usa el mensaje genérico.
   }
+  // El proxy (nginx) corta los archivos enormes antes de llegar al backend, con una página HTML.
+  if (response.status === 413) return 'El archivo es demasiado grande.'
   if (response.status === 422) return 'Los datos enviados no son válidos.'
   if (response.status >= 500) return 'Error del servidor. Inténtalo de nuevo más tarde.'
   return `Error inesperado (${response.status}).`
