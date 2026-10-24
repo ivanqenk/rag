@@ -10,11 +10,12 @@ resúmenes generados al procesar cada documento (ver services/summaries.py).
 Qué fragmentos lee el LLM depende de RAG_STRATEGY (simple, rerank o progressive; ver
 core/config.py). La pregunta puede limitarse a una carpeta, a un documento o a una página.
 
-Formatos de respuesta: breve (una o dos frases), detallada (resumen + puntos) y por pasos.
+Formatos de respuesta: breve (una o dos frases) y detallada (resumen + puntos; numerados si
+las fuentes describen un procedimiento).
 Para que una respuesta larga no añada nada que no esté en los documentos:
 1. El prompt lo prohíbe y pide que cada punto cite sus fuentes.
 2. El servidor descarta los puntos sin ninguna cita válida.
-3. En detallada y pasos, una segunda llamada (RAG_VERIFY_ANSWERS) comprueba cada afirmación
+3. En detallada, una segunda llamada (RAG_VERIFY_ANSWERS) comprueba cada afirmación
    contra el texto de SUS fuentes y descarta las que no estén respaldadas.
 """
 
@@ -75,6 +76,8 @@ class RagAnswer:
     sources: list[Source]
     insufficient_evidence: bool
     points: list[AnswerPoint] = field(default_factory=list)
+    # Los puntos son pasos de un procedimiento: se muestran numerados.
+    points_ordered: bool = False
     # Afirmaciones descartadas por no tener cita válida o no superar la verificación. Solo
     # para logs y evaluación (cuántas) y para revisar la verificación (cuáles); no sale por la API.
     removed_claims: list[str] = field(default_factory=list)
@@ -172,7 +175,7 @@ def answer_question(
     style: str = "brief",
 ) -> RagAnswer:
     """Responde con los documentos, o solo con los de `scope` (carpeta, documento o página),
-    en el formato `style` (brief, detailed o steps)."""
+    en el formato `style` (brief o detailed)."""
     started = time.perf_counter()
     usage = _Usage()
     attempts: list[list[tuple[ContextChunk, Source]]] = []
@@ -338,6 +341,7 @@ def _generate(
         sources=[by_ref[ref][1] for ref in ordered],
         insufficient_evidence=False,
         points=[AnswerPoint(text, [position[r] for r in refs]) for text, refs in points],
+        points_ordered=llm_result.answer.ordered and bool(points),
         removed_claims=removed,
     )
 

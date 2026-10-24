@@ -77,9 +77,9 @@ flowchart TD
     C -->|sí| RR["Reordenamiento: el LLM elige 5 de 20 candidatos<br/>(RAG_STRATEGY=rerank; ids validados)"]
     RR --> CC["Contexto acotado: top 5, ≤ 8000 caracteres<br/>ids S1, S2…, texto delimitado y escapado"]
     CS --> LLM
-    CC --> LLM["LLM con salida estructurada (breve, detallada o pasos)<br/>answer · points con sus fuentes · insufficient_evidence"]
+    CC --> LLM["LLM con salida estructurada (breve o detallada)<br/>answer · points con sus fuentes · ordered · insufficient_evidence"]
     LLM --> VC["Verificación de citas en el servidor<br/>se descartan ids inexistentes y puntos sin cita"]
-    VC --> VF{"¿Formato detallado o pasos?"}
+    VC --> VF{"¿Formato detallado?"}
     VF -->|sí| VV["Verificación de cada afirmación<br/>contra el texto de SUS fuentes (2.ª llamada)"]
     VF -->|no| OK
     VV --> OK

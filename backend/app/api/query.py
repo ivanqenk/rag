@@ -62,4 +62,5 @@ def query_documents(
         insufficient_evidence=result.insufficient_evidence,
         answer_style=request.answer_style,
         points=[PointItem(text=p.text, sources=p.source_indexes) for p in result.points],
+        points_ordered=result.points_ordered,
     )

@@ -105,10 +105,23 @@ def test_detailed_answer_has_points_with_their_own_sources(llm: LLMProvider) -> 
     assert result.answer.points
     for point in result.answer.points:
         assert point.cited_sources == ["S1"]
+    assert result.answer.ordered is False  # requisitos, no un procedimiento
     text = " ".join(p.text for p in result.answer.points).lower()
     assert "14" in text and "180" in text
     for invented in ("mayúscul", "símbolo", "especial"):
         assert invented not in text
+
+
+def test_procedure_comes_back_as_ordered_steps(llm: LLMProvider) -> None:
+    result = llm.generate_answer(
+        "¿Qué hago si creo que mi ordenador tiene un virus?", [INFECTED], "detailed"
+    )
+    print(result.answer)
+
+    assert result.answer.ordered is True
+    steps = " ".join(p.text for p in result.answer.points).lower()
+    assert "apag" in steps and "descon" in steps
+    assert "antivirus" not in steps and "reinici" not in steps
 
 
 def test_verifier_accepts_paraphrases_and_rejects_additions(llm: LLMProvider) -> None:

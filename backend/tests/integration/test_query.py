@@ -28,6 +28,7 @@ NO_EVIDENCE_BODY = {
     "insufficient_evidence": True,
     "answer_style": "brief",
     "points": [],
+    "points_ordered": False,
 }
 
 

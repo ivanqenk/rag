@@ -13,8 +13,14 @@ formatos largos no pueden inventar ni añadir nada.
 
 ## Decisión
 
-Tres formatos (`answer_style` en `/api/v1/query`): **breve** (una o dos frases, por defecto),
-**detallada** (resumen y puntos) y **pasos** (lista ordenada).
+Dos formatos (`answer_style` en `/api/v1/query`): **breve** (una o dos frases, por defecto)
+y **detallada** (resumen y puntos). Si las fuentes describen un procedimiento, el LLM lo indica
+(`ordered`) y los puntos se muestran numerados, en el orden de las fuentes.
+
+Hubo una primera versión con un tercer formato, **pasos**, pero en preguntas que no son de
+procedimiento daba lo mismo que detallada y obligaba al usuario a elegir entre dos opciones
+parecidas. Se sustituyó por la numeración automática (medida: acierta en 14 de 15 casos en tres
+ejecuciones y nunca numera lo que no es un procedimiento).
 
 La respuesta es **datos estructurados, no Markdown**: `answer` + `points[]`, y cada punto con
 sus propias fuentes. El frontend lo dibuja como texto, así que un documento malicioso no puede
@@ -23,13 +29,12 @@ separado.
 
 Cuatro capas contra lo inventado:
 
-1. **Prompt** (`rag-answer-v3`): solo lo que aparece en las fuentes; prohibido añadir
+1. **Prompt** (`rag-answer-v4`): solo lo que aparece en las fuentes; prohibido añadir
    consejos, pasos o cifras «razonables»; mejor menos puntos que uno sin respaldo; ante una
    pregunta ambigua no elegir una interpretación.
 2. **Citas por punto verificadas en el servidor**: un punto sin ninguna cita válida se
    descarta; las fuentes devueltas son solo las de lo que queda.
-3. **Verificación independiente** (`rag-verify-v3`, `RAG_VERIFY_ANSWERS`, en detallada y
-   pasos): una segunda llamada, sin razonamiento, compara cada afirmación con el texto de SUS
+3. **Verificación independiente** (`rag-verify-v3`, `RAG_VERIFY_ANSWERS`, en detallada): una segunda llamada, sin razonamiento, compara cada afirmación con el texto de SUS
    fuentes y se descarta lo no respaldado. Recibe la pregunta para entender sus términos.
 4. **Evaluación** con preguntas trampa que invitan a añadir consejos genéricos (antivirus,
    mayúsculas en las contraseñas, formularios, policía…).
@@ -53,11 +58,11 @@ Esa batería es ahora una prueba contra el proveedor real
 
 ## Consecuencias
 
-- Detallada y pasos tardan ~1–1.5 s más que breve (una llamada más) y cuestan ~$0.0003 por
-  pregunta frente a ~$0.0002.
+- Detallada tarda ~1.5 s más que breve (una llamada más) y cuesta ~$0.0003 por pregunta
+  frente a ~$0.0002.
 - En la evaluación, el prompt por sí solo ya no inventó nada (con y sin verificación:
   0 respuestas con texto prohibido). La verificación es un **seguro**: su coste medido es
   descartar de vez en cuando un resumen correcto que combina varios datos (los puntos quedan).
   Se prefiere perder un dato a mostrar uno inventado.
-- Con 31 preguntas no se puede afirmar que nunca invente: se puede medir y detectar si
+- Con 31 + 23 preguntas no se puede afirmar que nunca invente: se puede medir y detectar si
   empeora al cambiar de modelo o de prompt.

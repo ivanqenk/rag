@@ -31,6 +31,7 @@ describe('AskPage', () => {
       insufficient_evidence: false,
       answer_style: 'brief',
       points: [],
+      points_ordered: false,
     }
     const fetchSpy = mockFetch(jsonResponse([]), jsonResponse(answer))
     render(<AskPage />)
@@ -72,6 +73,7 @@ describe('AskPage', () => {
         insufficient_evidence: false,
         answer_style: 'brief',
         points: [],
+        points_ordered: false,
       }),
     )
     render(<AskPage />)
@@ -91,6 +93,7 @@ describe('AskPage', () => {
         insufficient_evidence: true,
         answer_style: 'brief',
         points: [],
+        points_ordered: false,
       }),
     )
     render(<AskPage />)
@@ -133,6 +136,7 @@ describe('AskPage', () => {
         insufficient_evidence: false,
         answer_style: 'brief',
         points: [],
+        points_ordered: false,
       }),
     )
     const { container } = render(<AskPage />)
@@ -153,6 +157,7 @@ describe('AskPage', () => {
       insufficient_evidence: false,
       answer_style: 'brief',
       points: [],
+      points_ordered: false,
     }
     const fetchSpy = mockFetch(jsonResponse(document), jsonResponse(answer))
     render(<AskPage documentId={document.id} />)
@@ -192,6 +197,7 @@ describe('AskPage', () => {
       insufficient_evidence: false,
       answer_style: 'brief',
       points: [],
+      points_ordered: false,
     }
     const fetchSpy = mockFetch(jsonResponse([folder]), jsonResponse(answer))
     render(<AskPage />)
@@ -217,7 +223,7 @@ describe('AskPage', () => {
     expect(screen.getByRole('button', { name: 'Preguntar' })).toBeDisabled()
   })
 
-  it('pide una respuesta por pasos y la muestra numerada con sus fuentes', async () => {
+  it('numera los puntos cuando la respuesta detallada es un procedimiento', async () => {
     const second = {
       ...SOURCE,
       chunk_id: 'c2',
@@ -228,7 +234,8 @@ describe('AskPage', () => {
       answer: 'Para pedir vacaciones:',
       sources: [SOURCE, second],
       insufficient_evidence: false,
-      answer_style: 'steps',
+      answer_style: 'detailed',
+      points_ordered: true,
       points: [
         { text: 'Entra en el portal Mi Nimbo.', sources: [1] },
         { text: 'Pide los días con 15 días de antelación <b>ya</b>.', sources: [0, 1] },
@@ -237,7 +244,7 @@ describe('AskPage', () => {
     const fetchSpy = mockFetch(jsonResponse([]), jsonResponse(answer))
     const { container } = render(<AskPage />)
 
-    await userEvent.click(screen.getByRole('radio', { name: 'Pasos' }))
+    await userEvent.click(screen.getByRole('radio', { name: 'Detallada' }))
     await ask('¿Cómo pido vacaciones?')
 
     await screen.findByText('Entra en el portal Mi Nimbo.')
@@ -255,7 +262,7 @@ describe('AskPage', () => {
     expect(screen.getByText(/se ha comprobado contra el texto de sus fuentes/)).toBeInTheDocument()
     expect(JSON.parse(fetchSpy.mock.calls[1][1]?.body as string)).toEqual({
       question: '¿Cómo pido vacaciones?',
-      answer_style: 'steps',
+      answer_style: 'detailed',
     })
   })
 
@@ -268,6 +275,7 @@ describe('AskPage', () => {
         insufficient_evidence: false,
         answer_style: 'detailed',
         points: [{ text: 'Hay 22 días hábiles.', sources: [0] }],
+        points_ordered: false,
       }),
     )
     const { container } = render(<AskPage />)
@@ -278,5 +286,6 @@ describe('AskPage', () => {
     expect(await screen.findByText('Hay 22 días hábiles.')).toBeInTheDocument()
     expect(container.querySelector('ul.points')).not.toBeNull()
     expect(container.querySelector('p.answer')).toBeNull()
+    expect(screen.queryByRole('radio', { name: 'Pasos' })).toBeNull()
   })
 })

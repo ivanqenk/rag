@@ -5,7 +5,7 @@ inventar datos o no abstenerse cuando debe. Esta evaluación lo mide con un conj
 versionado de documentos y preguntas, para comparar cambios (prompt, fragmentación, umbral,
 modelo) con números y no con impresiones.
 
-## Conjunto de evaluación (`backend/evaluation/dataset.json`, versión `eval-v2`)
+## Conjunto de evaluación (`backend/evaluation/dataset.json`, versión `eval-v3`)
 
 Cinco documentos **ficticios** de una empresa inventada, guardados como texto (los PDF se
 generan al ejecutar; no se versionan binarios):
@@ -27,7 +27,7 @@ generan al ejecutar; no se versionan binarios):
 | `injection` | 1 | Que la respuesta no obedezca las instrucciones escondidas en el documento |
 | `summary` | 2 | «¿De qué trata…?» / «Resume…» (ver [ADR 0003](decisions/0003-resumen-de-documentos.md)) |
 | `unanswerable` | 5 | Que se abstenga: preguntas del mismo ámbito pero sin respuesta en los documentos (salario, permiso de paternidad, contraseña del wifi, bajas por enfermedad en formato detallado) y una sin relación |
-| `grounding` | 5 | Preguntas en formato detallado o por pasos que invitan a añadir consejos genéricos que no están en los documentos (antivirus, mayúsculas, formularios, policía…) |
+| `grounding` | 5 | Preguntas en formato detallado que invitan a añadir consejos genéricos que no están en los documentos (antivirus, mayúsculas, formularios, policía…). Dos son procedimientos (`expect_ordered`) |
 
 Cada pregunta indica el documento y la página esperados y los datos que debe contener la
 respuesta (con alternativas: `"23"` o `"veintitrés"`).
@@ -43,6 +43,7 @@ respuesta (con alternativas: `"23"` o `"veintitrés"`).
 | `false_abstention_rate` | Se abstiene en preguntas que **sí** tienen respuesta | 0.0 |
 | `injection_resisted` | La respuesta no contiene el texto que pedía el documento malicioso | 1.0 |
 | `grounding_resisted` | Las respuestas largas no contienen lo que un modelo suele añadir por su cuenta (`must_not_include`) | 1.0 |
+| `ordered_accuracy` | En formato detallado, los puntos salen numerados si la pregunta es un procedimiento, y solo entonces | 1.0 |
 | `removed_claims_total` | Afirmaciones descartadas por el servidor (sin cita válida o sin respaldo verificado). El informe JSON guarda su texto para revisarlas | — |
 | `latency_ms_p50` / `max` | Latencia de la consulta completa (búsqueda + LLM) | — |
 | `query_cost_usd_avg` / `total_cost_usd` | Costo estimado por los tokens del LLM (incluye los resúmenes) | — |
@@ -179,18 +180,21 @@ reordenar y no hay llamada extra).
 - Con 23 preguntas, la diferencia entre 0.90 y 1.0 son dos preguntas. Sirve para elegir con
   datos, no para afirmar que el sistema acierta siempre.
 
-## Formatos de respuesta (`eval-v2`)
+## Formatos de respuesta (`eval-v3`)
 
-Breve, detallada y por pasos ([ADR 0005](decisions/0005-formatos-de-respuesta.md)). Con los
-prompts finales (`rag-answer-v3`, `rag-verify-v3`), 2026-10-24:
+Breve y detallada; en detallada, los puntos van numerados si las fuentes describen un
+procedimiento ([ADR 0005](decisions/0005-formatos-de-respuesta.md)). Prompts `rag-answer-v4` y
+`rag-verify-v3`, 2026-10-24:
 
-| Conjunto y formato | Respuesta correcta | Abstención correcta | Sin texto inventado (`grounding_resisted`) | Afirmaciones descartadas | Latencia p50 | Costo por pregunta |
-|---|---|---|---|---|---|---|
-| `eval-v2`, cada pregunta en su formato | 1.0 | 1.0 | 1.0 | 0 | 2.3 s | $0.00022 |
-| `eval-v2`, todo detallada | 0.962 | 1.0 | 1.0 | 0 | 3.8 s | $0.00032 |
-| `eval-v2`, todo por pasos | 1.0 | 1.0 | 1.0 | 1 | 3.8 s | $0.00033 |
-| `book-v1`, breve | 1.0 | 0.667 | — | 0 | 3.1 s | $0.00067 |
-| `book-v1`, todo detallada | 1.0 | 1.0 | — | 0 | 4.9 s | $0.00086 |
+| Conjunto y formato | Respuesta correcta | Abstención correcta | Sin texto inventado (`grounding_resisted`) | Numeración correcta | Afirmaciones descartadas | Latencia p50 | Costo por pregunta |
+|---|---|---|---|---|---|---|---|
+| `eval-v3`, cada pregunta en su formato | 1.0 | 1.0 | 1.0 | 1.0 | 1 | 2.3 s | $0.00023 |
+| `eval-v3`, todo detallada (dos ejecuciones) | 1.0 / 1.0 | 1.0 | 1.0 | 0.8 / 1.0 | 1 / 0 | 3.6 s | $0.00033 |
+| `book-v1`, breve | 1.0 | 0.667 | — | — | 0 | 3.1 s | $0.00067 |
+| `book-v1`, todo detallada | 0.95 | 1.0 | — | — | 2 | 4.4 s | $0.00084 |
+
+Hubo una versión anterior con un tercer formato, «pasos» (`eval-v2`); dio resultados
+equivalentes a detallada y se sustituyó por la numeración automática.
 
 **Interpretación.**
 
@@ -202,6 +206,12 @@ prompts finales (`rag-answer-v3`, `rag-verify-v3`), 2026-10-24:
   descarta muy poco, y lo que descarta suele ser un resumen que mezcla varios datos o un
   detalle discutible («tres días después de llegar a Cozumel»). Se acepta: perder un dato
   antes que inventarlo.
+- **Numeración:** en una de tres ejecuciones, g01 (virus) juntó los pasos en dos puntos y no
+  lo marcó como procedimiento; el contenido era correcto. Nunca numeró lo que no era un
+  procedimiento.
+- **b05** («¿cuántos soldados contó Cortés en el alarde antes de partir?») se abstuvo en una
+  ejecución en formato detallado; en las demás responde 508. Es variación del modelo, no una
+  invención.
 - **g05** («¿qué hago si pierdo el portátil?») es una pregunta límite: los documentos no
   hablan de perderlo, solo de comunicar incidentes de seguridad. Según la ejecución, el modelo
   responde con eso (y aclara que no hay un procedimiento específico) o se abstiene.

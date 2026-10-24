@@ -32,7 +32,7 @@ class SearchScope(BaseModel):
         )
 
 
-AnswerStyle = Literal["brief", "detailed", "steps"]
+AnswerStyle = Literal["brief", "detailed"]
 
 
 class QueryRequest(SearchScope):
@@ -40,7 +40,7 @@ class QueryRequest(SearchScope):
     question: str = Field(min_length=1, description="Pregunta en lenguaje natural")
     answer_style: AnswerStyle = Field(
         default="brief",
-        description="brief: una o dos frases; detailed: resumen y puntos; steps: pasos en orden",
+        description="brief: una o dos frases; detailed: resumen y puntos (numerados si son pasos)",
     )
 
 
@@ -71,4 +71,7 @@ class QueryResponse(BaseModel):
     answer_style: AnswerStyle
     points: list[PointItem] = Field(
         description="Puntos o pasos, cada uno con sus fuentes (vacío en respuestas breves)"
+    )
+    points_ordered: bool = Field(
+        description="true si los puntos son pasos de un procedimiento (mostrar numerados)"
     )

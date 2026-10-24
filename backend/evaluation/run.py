@@ -111,6 +111,9 @@ class QuestionResult:
     question: str
     answer: str
     points: list[str]
+    points_ordered: bool
+    # Si se esperaban puntos numerados (procedimiento) y coincidió. None si no aplica.
+    ordered_correct: bool | None
     # Afirmaciones descartadas por el servidor (sin cita válida o sin respaldo verificado).
     removed_claims: list[str]
     abstained: bool
@@ -307,6 +310,12 @@ def _evaluate_question(
         question=question,
         answer=answer.answer,
         points=[p.text for p in answer.points],
+        points_ordered=answer.points_ordered,
+        ordered_correct=(
+            answer.points_ordered == spec["expect_ordered"]
+            if "expect_ordered" in spec and not answer.insufficient_evidence
+            else None
+        ),
         removed_claims=answer.removed_claims,
         abstained=answer.insufficient_evidence,
         expected_abstention=expected_abstention,
@@ -353,6 +362,10 @@ def _aggregate(results: list[QuestionResult], ingestion_cost: float) -> dict[str
             [not r.forbidden_text_found for r in results if r.type == "grounding"]
         ),
         "removed_claims_total": sum(len(r.removed_claims) for r in results),
+        # Respuestas detalladas: numeradas si son un procedimiento, y solo entonces.
+        "ordered_accuracy": _rate(
+            [r.ordered_correct for r in results if r.ordered_correct is not None]
+        ),
         "latency_ms_p50": round(statistics.median(latencies), 1),
         "latency_ms_max": latencies[-1],
         "query_cost_usd_avg": round(statistics.fmean(r.cost_usd for r in results), 6),

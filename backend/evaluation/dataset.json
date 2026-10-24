@@ -1,5 +1,5 @@
 {
-  "version": "eval-v2",
+  "version": "eval-v3",
   "description": "Documentos ficticios de una empresa inventada (Nimbo Logística) y preguntas con la respuesta esperada. Cambiar este archivo cambia la evaluación: sube la versión.",
   "documents": [
     {
@@ -69,11 +69,11 @@
     {"id": "q23", "type": "unanswerable", "question": "¿Cuántos días de permiso por paternidad me corresponden?", "document": null, "page": null},
     {"id": "q24", "type": "unanswerable", "question": "¿Cuál es la capital de Australia?", "document": null, "page": null},
     {"id": "q25", "type": "unanswerable", "question": "¿Cuál es la contraseña del wifi de la oficina?", "document": null, "page": null},
-    {"id": "g01", "type": "grounding", "style": "steps", "question": "¿Qué pasos debo seguir si creo que mi ordenador tiene un virus?", "document": "seguridad", "page": 2, "must_include": [["desconect"]], "must_not_include": ["antivirus", "reinici", "formate", "escane", "copia de seguridad"]},
-    {"id": "g02", "type": "grounding", "style": "detailed", "question": "¿Qué requisitos deben cumplir las contraseñas?", "document": "seguridad", "page": 1, "must_include": [["14", "catorce"], ["180", "ciento ochenta"]], "must_not_include": ["mayúscul", "minúscul", "símbolo", "especial"]},
-    {"id": "g03", "type": "grounding", "style": "steps", "question": "¿Cómo solicito mis vacaciones?", "document": "manual", "page": 2, "must_include": [["Mi Nimbo"], ["15", "quince"]], "must_not_include": ["formulario", "recursos humanos", "correo"]},
-    {"id": "g04", "type": "grounding", "style": "detailed", "question": "¿Qué ventajas tiene teletrabajar en Nimbo?", "document": "manual", "page": 3, "must_include": [["30", "treinta"]], "must_not_include": ["productividad", "conciliación", "ahorro de tiempo", "desplazamiento"]},
-    {"id": "g05", "type": "grounding", "style": "detailed", "question": "¿Qué debo hacer si pierdo mi portátil del trabajo?", "document": "seguridad", "page": 2, "must_include": [["1 hora", "una hora"]], "must_not_include": ["policía", "denuncia", "bloque", "rastre"]},
+    {"id": "g01", "type": "grounding", "style": "detailed", "expect_ordered": true, "question": "¿Qué pasos debo seguir si creo que mi ordenador tiene un virus?", "document": "seguridad", "page": 2, "must_include": [["desconect"]], "must_not_include": ["antivirus", "reinici", "formate", "escane", "copia de seguridad"]},
+    {"id": "g02", "type": "grounding", "style": "detailed", "expect_ordered": false, "question": "¿Qué requisitos deben cumplir las contraseñas?", "document": "seguridad", "page": 1, "must_include": [["14", "catorce"], ["180", "ciento ochenta"]], "must_not_include": ["mayúscul", "minúscul", "símbolo", "especial"]},
+    {"id": "g03", "type": "grounding", "style": "detailed", "expect_ordered": true, "question": "¿Cómo solicito mis vacaciones?", "document": "manual", "page": 2, "must_include": [["Mi Nimbo"], ["15", "quince"]], "must_not_include": ["formulario", "recursos humanos", "correo"]},
+    {"id": "g04", "type": "grounding", "style": "detailed", "expect_ordered": false, "question": "¿Qué ventajas tiene teletrabajar en Nimbo?", "document": "manual", "page": 3, "must_include": [["30", "treinta"]], "must_not_include": ["productividad", "conciliación", "ahorro de tiempo", "desplazamiento"]},
+    {"id": "g05", "type": "grounding", "style": "detailed", "expect_ordered": false, "question": "¿Qué debo hacer si pierdo mi portátil del trabajo?", "document": "seguridad", "page": 2, "must_include": [["1 hora", "una hora"]], "must_not_include": ["policía", "denuncia", "bloque", "rastre"]},
     {"id": "g06", "type": "unanswerable", "style": "detailed", "question": "Explica en detalle la política de bajas por enfermedad.", "document": null, "page": null}
   ]
 }

@@ -311,11 +311,12 @@ Cómo se genera:
    las fuentes devueltas (documento, página, extracto) salen de la base de datos, no del texto
    del LLM. Una respuesta sin ninguna cita válida se trata como no respaldada.
 
-**Formatos de respuesta** (`"answer_style"`): `brief` (una o dos frases, por defecto),
-`detailed` (resumen y puntos) y `steps` (pasos en orden). La respuesta llega como datos, no
-como Markdown: `answer` más `points`, cada punto con `sources` (posiciones en `sources`). Para
+**Formatos de respuesta** (`"answer_style"`): `brief` (una o dos frases, por defecto) y
+`detailed` (resumen y puntos; si los documentos describen un procedimiento, `points_ordered`
+es `true` y los puntos son sus pasos en orden). La respuesta llega como datos, no como
+Markdown: `answer` más `points`, cada punto con `sources` (posiciones en `sources`). Para
 que una respuesta larga no añada nada que no esté en los documentos: el prompt lo prohíbe, el
-servidor descarta los puntos sin una cita válida y, en `detailed` y `steps`, una segunda llamada
+servidor descarta los puntos sin una cita válida y, en `detailed`, una segunda llamada
 comprueba cada afirmación contra el texto de sus fuentes y descarta lo no respaldado
 ([ADR 0005](docs/decisions/0005-formatos-de-respuesta.md)).
 
@@ -420,8 +421,8 @@ Metodología, resultados e interpretación en [`docs/rag-evaluation.md`](docs/ra
   error de los documentos fallidos, reintentar y eliminar (a la papelera, con confirmación).
 - **Detalle de documento:** metadatos, estado, resumen generado (con botón para generarlo si
   falta), enlace al PDF original y «Preguntar sobre este documento» (con página opcional).
-- **Preguntar:** a todos los documentos o a una carpeta, en formato breve, detallado o por
-  pasos; cada punto enlaza a sus fuentes (documento, página y extracto; la página abre el PDF
+- **Preguntar:** a todos los documentos o a una carpeta, en formato breve o detallado (con
+  los pasos numerados si es un procedimiento); cada punto enlaza a sus fuentes (documento, página y extracto; la página abre el PDF
   en ese punto) y hay un aviso explícito cuando no hay evidencia suficiente.
 - **Papelera:** restaurar, eliminar definitivamente y vaciar, con la fecha de borrado automático.
 - **Tema claro u oscuro** a elección (claro por defecto), recordado en el navegador.

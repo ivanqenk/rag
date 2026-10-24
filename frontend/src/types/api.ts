@@ -50,8 +50,8 @@ export interface Source {
   score: number | null
 }
 
-// brief: una o dos frases; detailed: resumen y puntos; steps: pasos en orden.
-export type AnswerStyle = 'brief' | 'detailed' | 'steps'
+// brief: una o dos frases; detailed: resumen y puntos (numerados si son pasos).
+export type AnswerStyle = 'brief' | 'detailed'
 
 export interface AnswerPoint {
   // Texto generado por un LLM: mostrar siempre como texto, nunca como HTML.
@@ -68,4 +68,6 @@ export interface QueryResponse {
   insufficient_evidence: boolean
   answer_style: AnswerStyle
   points: AnswerPoint[]
+  // Los puntos son pasos de un procedimiento: mostrarlos numerados.
+  points_ordered: boolean
 }

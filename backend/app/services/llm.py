@@ -48,6 +48,11 @@ class LLMAnswer(BaseModel):
     points: list[LLMPoint] = Field(
         default_factory=list, description="Puntos o pasos (vacío en respuestas breves)"
     )
+    # Mismo truco que points: obligatorio para OpenAI, opcional al construirlo en el código.
+    ordered: bool = Field(
+        default_factory=lambda: False,
+        description="true si los puntos son pasos de un procedimiento, en orden",
+    )
     insufficient_evidence: bool = Field(
         description="true si las fuentes no permiten responder la pregunta"
     )

@@ -6,8 +6,11 @@ import type { AnswerStyle, Folder, QueryResponse } from '../types/api'
 
 const STYLES: Array<{ value: AnswerStyle; label: string; hint: string }> = [
   { value: 'brief', label: 'Breve', hint: 'Una o dos frases' },
-  { value: 'detailed', label: 'Detallada', hint: 'Resumen y puntos clave' },
-  { value: 'steps', label: 'Pasos', hint: 'Lista ordenada de pasos' },
+  {
+    value: 'detailed',
+    label: 'Detallada',
+    hint: 'Resumen y puntos clave (numerados si el documento describe un procedimiento)',
+  },
 ]
 
 // Debe coincidir con MAX_QUERY_CHARS del backend.
@@ -297,9 +300,9 @@ function Answer({ response }: { response: QueryResponse }) {
 
 /** Puntos o pasos, cada uno con enlaces a sus fuentes (el número coincide con «Fuentes»). */
 function Points({ response }: { response: QueryResponse }) {
-  const List = response.answer_style === 'steps' ? 'ol' : 'ul'
+  const List = response.points_ordered ? 'ol' : 'ul'
   return (
-    <List className={`points points-${response.answer_style}`}>
+    <List className={`points${response.points_ordered ? ' points-ordered' : ''}`}>
       {response.points.map((point, index) => (
         <li key={index}>
           <span>{point.text}</span>{' '}
