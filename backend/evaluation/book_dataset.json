@@ -1,0 +1,36 @@
+{
+  "version": "book-v1",
+  "description": "Preguntas sobre un libro largo y homogéneo (96 páginas, ~500 fragmentos que hablan casi todos de lo mismo): 'Historia verdadera de la conquista de la Nueva España', de Bernal Díaz del Castillo (dominio público). El PDF no se versiona: colócalo en evaluation/pdfs/ (ver docs/rag-evaluation.md). Respuestas y páginas verificadas en el texto extraído.",
+  "documents": [
+    {
+      "id": "libro",
+      "filename": "Conquista-Nueva-Espana-Bernal-Diaz-del-Castillo.pdf",
+      "path": "pdfs/Conquista-Nueva-Espana-Bernal-Diaz-del-Castillo.pdf"
+    }
+  ],
+  "questions": [
+    {"id": "b01", "type": "fact", "question": "¿En qué año fue Bernal Díaz a Tierra Firme con Pedrarias Dávila?", "document": "libro", "page": 2, "must_include": [["1514"]]},
+    {"id": "b02", "type": "fact", "question": "¿Cuándo zarpó de La Habana la expedición de Hernández de Córdoba?", "document": "libro", "page": 2, "must_include": [["1517"]]},
+    {"id": "b03", "type": "fact", "question": "¿A qué isla llegó la expedición de Grijalva cuatro días después de salir de Cuba?", "document": "libro", "page": 3, "must_include": [["Cozumel"]]},
+    {"id": "b04", "type": "fact", "question": "¿Qué día se hizo a la vela la armada de Cortés?", "document": "libro", "page": 6, "must_include": [["1519"], ["febrero"]]},
+    {"id": "b05", "type": "fact", "question": "¿Cuántos soldados contó Cortés en el alarde antes de partir?", "document": "libro", "page": 7, "must_include": [["508", "quinientos ocho"]]},
+    {"id": "b06", "type": "fact", "question": "¿Cuántos caballos llevaba la armada?", "document": "libro", "page": 7, "must_include": [["16", "dieciséis", "diez y seis"]]},
+    {"id": "b07", "type": "fact", "question": "¿De dónde era Gonzalo Guerrero?", "document": "libro", "page": 8, "must_include": [["Palos"]]},
+    {"id": "b08", "type": "fact", "question": "¿Qué nombre le pusieron al bautizarla a la india que regalaron a Cortés?", "document": "libro", "page": 12, "must_include": [["Marina"]]},
+    {"id": "b09", "type": "fact", "question": "¿Cuándo entraron los españoles en la gran ciudad de México?", "document": "libro", "page": 39, "must_include": [["1519"], ["noviembre"]]},
+    {"id": "b10", "type": "fact", "question": "¿Cuántos caballos escaparon en la huida de México?", "document": "libro", "page": 61, "must_include": [["23", "veintitrés"]]},
+    {"id": "b11", "type": "fact", "question": "¿En qué fecha fue la batalla de Otumba?", "document": "libro", "page": 63, "must_include": [["1520"], ["julio"]]},
+    {"id": "b12", "type": "fact", "question": "¿Cuántos indios de guerra pidió Cortés a Tlascala para la jornada hasta Tezcuco?", "document": "libro", "page": 65, "must_include": [["diez mil", "10.000", "10 000", "10000"]]},
+    {"id": "b23", "type": "fact", "question": "¿Cuántos hombres de guerra pidió Cortés a Tlascala para castigar Tepeaca?", "document": "libro", "page": 64, "must_include": [["cinco mil", "5.000", "5 000", "5000"]]},
+    {"id": "b13", "type": "fact", "question": "¿Quién cortó la madera para los bergantines?", "document": "libro", "page": 65, "must_include": [["Martín López"]]},
+    {"id": "b14", "type": "fact", "question": "¿Cuántos de a caballo había en el alarde de Tezcuco?", "document": "libro", "page": 74, "must_include": [["84", "ochenta y cuatro"]]},
+    {"id": "b15", "type": "fact", "question": "¿Cuándo prendieron a Guatemuz?", "document": "libro", "page": 91, "must_include": [["agosto"], ["1521", "mil quinientos veintiuno"]]},
+    {"id": "b16", "type": "fact", "question": "¿Qué pasó con los tigres que llevaban los procuradores a Castilla?", "document": "libro", "page": 95, "must_include": [["solt", "escap"]]},
+    {"id": "b17", "type": "page_filter", "question": "¿En qué año fue esto?", "document": "libro", "page": 65, "filter": {"document": "libro", "page": 65}, "must_include": [["1520"]]},
+    {"id": "b18", "type": "page_filter", "question": "¿Cuántos soldados de espada y rodela había aquí?", "document": "libro", "page": 74, "filter": {"document": "libro", "page": 74}, "must_include": [["650", "seiscientos cincuenta"]]},
+    {"id": "b19", "type": "summary", "question": "¿De qué trata este libro?", "document": "libro", "page": null, "must_include": [["conquista"]]},
+    {"id": "b20", "type": "unanswerable", "question": "¿En qué año fue esto?", "document": null, "page": null},
+    {"id": "b21", "type": "unanswerable", "question": "¿Cuál es la población actual de Tlaxcala?", "document": null, "page": null},
+    {"id": "b22", "type": "unanswerable", "question": "¿Qué selección ganó el Mundial de fútbol de 1986?", "document": null, "page": null}
+  ]
+}

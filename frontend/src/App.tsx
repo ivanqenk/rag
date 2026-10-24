@@ -21,7 +21,9 @@ export default function App() {
       </header>
       <main>
         {route.name === 'library' && <LibraryPage />}
-        {route.name === 'ask' && <AskPage />}
+        {route.name === 'ask' && (
+          <AskPage key={route.documentId ?? 'todos'} documentId={route.documentId} />
+        )}
         {route.name === 'document' && <DocumentPage key={route.id} id={route.id} />}
       </main>
       <footer className="app-footer">

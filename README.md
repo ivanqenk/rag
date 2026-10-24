@@ -227,7 +227,13 @@ curl -X POST http://localhost:8000/api/v1/search \
 
 La búsqueda es **híbrida**: combina la similitud de significado (embeddings + pgvector, búsqueda
 exacta) con la búsqueda por palabras de PostgreSQL (`tsvector`), útil para nombres propios,
-códigos y números exactos. Las dos listas se fusionan con Reciprocal Rank Fusion.
+códigos y números exactos. Las dos listas se fusionan con Reciprocal Rank Fusion. En la de
+palabras basta con que el fragmento contenga al menos la mitad de las palabras importantes de
+la pregunta, y cuentan más las palabras raras («Tezcuco») que las frecuentes («Cortés»): una
+puntuación tipo BM25.
+
+- Opcional: `"document_id"` limita la búsqueda a un documento, y `"page_number"` (con
+  `document_id`) a una de sus páginas. `404` si el documento no existe.
 
 - Solo se consideran documentos `completed` y vectores del modelo de embeddings activo.
 - Los resultados vectoriales deben superar `RETRIEVAL_MIN_SCORE`. Si nada es relevante, la
@@ -242,6 +248,11 @@ códigos y números exactos. Las dos listas se fusionan con Reciprocal Rank Fusi
 curl -X POST http://localhost:8000/api/v1/query \
   -H "Content-Type: application/json" \
   -d '{"question": "¿cuántos días de vacaciones tengo?"}'
+
+# Solo sobre una página de un documento («¿en qué año fue esto?» mientras lo lees):
+curl -X POST http://localhost:8000/api/v1/query \
+  -H "Content-Type: application/json" \
+  -d '{"question": "¿En qué año fue esto?", "document_id": "<id>", "page_number": 65}'
 ```
 
 ```json
@@ -259,12 +270,18 @@ Cómo se genera:
 
 1. Búsqueda híbrida de los fragmentos relevantes. **Si no hay ninguno, se responde que no hay
    evidencia sin llamar al LLM** (sin costo).
-2. Se construye un contexto limitado (`RETRIEVAL_TOP_K` fragmentos, `RAG_MAX_CONTEXT_CHARS`)
+2. **Reordenamiento** (`RAG_STRATEGY=rerank`, por defecto): si hay más candidatos que los que
+   se van a leer, la búsqueda trae 20 (`RAG_RERANK_CANDIDATES`) y el LLM elige los 5 más
+   útiles. En un libro largo esto subió las respuestas correctas del 90 % al 100 %, con ~1 s
+   y ~$0.0004 más por pregunta
+   ([ADR 0004](docs/decisions/0004-reordenamiento-con-llm.md)). Alternativas configurables:
+   `simple` y `progressive`.
+3. Se construye un contexto limitado (`RETRIEVAL_TOP_K` fragmentos, `RAG_MAX_CONTEXT_CHARS`)
    con ids cortos `S1`, `S2`… El texto de los documentos va delimitado y escapado, y el prompt
    (`app/services/prompts.py`) declara que es información, no instrucciones.
-3. El LLM (`gpt-6-luna`, sin herramientas, `store=False`) devuelve JSON con un esquema fijo:
+4. El LLM (`gpt-6-luna`, sin herramientas, `store=False`) devuelve JSON con un esquema fijo:
    respuesta, ids citados y si hay evidencia suficiente.
-4. **Las citas se verifican en el servidor**: se descartan ids que no estaban en el contexto, y
+5. **Las citas se verifican en el servidor**: se descartan ids que no estaban en el contexto, y
    las fuentes devueltas (documento, página, extracto) salen de la base de datos, no del texto
    del LLM. Una respuesta sin ninguna cita válida se trata como no respaldada.
 
@@ -274,8 +291,8 @@ documentos. Esas fuentes llegan con `source_type: "summary"`, sin página, fragm
 ([ADR 0003](docs/decisions/0003-resumen-de-documentos.md)).
 
 `answer` es texto generado por un LLM: muéstralo siempre como texto, nunca como HTML.
-Costo estimado: ~$0.0004 por pregunta (ver
-[`docs/decisions/0002-proveedor-llm.md`](docs/decisions/0002-proveedor-llm.md)).
+Costo medido: ~$0.00014 por pregunta con pocos documentos y ~$0.0006 en un libro largo (con
+reordenamiento); ver [`docs/rag-evaluation.md`](docs/rag-evaluation.md).
 
 ### Embeddings
 
@@ -350,11 +367,15 @@ recuperación, citas, contenido, abstención, latencia y costo. Desde `backend/`
 ```bash
 uv run python -m evaluation.run                     # gratis, con proveedores falsos
 uv run python -m evaluation.run --provider openai   # real, ~$0.01
+uv run python -m evaluation.run --provider openai --dataset evaluation/book_dataset.json
+uv run python -m evaluation.run --provider openai --strategy simple   # comparar estrategias
 ```
 
 **Resultado con OpenAI (2026-10-24):** 25/25 preguntas correctas (recuperación, citas, datos,
-abstención e inyección), mediana de 1.6 s por pregunta y $0.0035 en total. Con un conjunto
-tan pequeño esto detecta regresiones; no demuestra una precisión general.
+abstención e inyección). Con un libro real de 96 páginas (23 preguntas) la configuración por
+defecto acierta 20/20 y se abstiene en las 3 sin respuesta; antes de la mejora de la búsqueda y
+del reordenamiento acertaba el 75 %. Con conjuntos tan pequeños esto detecta regresiones y
+permite comparar; no demuestra una precisión general.
 
 Metodología, resultados e interpretación en [`docs/rag-evaluation.md`](docs/rag-evaluation.md).
 

@@ -28,6 +28,10 @@ describe('DocumentPage', () => {
     expect(link).toHaveAttribute('href', `/api/v1/documents/${document.id}/file`)
     expect(link).toHaveAttribute('target', '_blank')
     expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(screen.getByRole('link', { name: 'Preguntar sobre este documento' })).toHaveAttribute(
+      'href',
+      `#/preguntar?documento=${document.id}`,
+    )
   })
 
   it('permite generar el resumen si no lo tiene', async () => {

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
+from app.repositories.documents import DocumentRepository
 from app.schemas.query import QueryRequest, QueryResponse, SourceItem
 from app.services import rag
 from app.services.embeddings import EmbeddingError, EmbeddingProvider, get_embedding_provider
@@ -20,7 +21,8 @@ router = APIRouter(prefix="/api/v1", tags=["query"])
     "/query",
     response_model=QueryResponse,
     responses={
-        422: {"description": "Pregunta vacía o demasiado larga"},
+        404: {"description": "El documento indicado en document_id no existe"},
+        422: {"description": "Pregunta vacía o demasiado larga, o page_number sin document_id"},
         503: {"description": "Proveedor de embeddings o de LLM no configurado o no disponible"},
     },
 )
@@ -32,7 +34,10 @@ def query_documents(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> QueryResponse:
     """Responde usando solo los documentos cargados. Si no hay evidencia suficiente, lo dice
-    explícitamente (`insufficient_evidence: true`) en lugar de inventar una respuesta."""
+    explícitamente (`insufficient_evidence: true`) en lugar de inventar una respuesta.
+
+    Con `document_id` (y opcionalmente `page_number`) solo usa ese documento o esa página:
+    útil para preguntas sobre lo que se está leyendo ("¿en qué año fue esto?")."""
     question = request.question.strip()
     if not question:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "La pregunta está vacía.")
@@ -42,8 +47,13 @@ def query_documents(
             f"La pregunta supera el máximo de {settings.max_query_chars} caracteres.",
         )
 
+    if request.document_id and DocumentRepository(session).get(request.document_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Documento no encontrado.")
+
     try:
-        result = rag.answer_question(session, embedder, llm, settings, question)
+        result = rag.answer_question(
+            session, embedder, llm, settings, question, request.document_id, request.page_number
+        )
     except (EmbeddingError, LLMError) as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, exc.message) from None
 

@@ -35,7 +35,7 @@ respuesta (con alternativas: `"23"` o `"veintitrés"`).
 
 | Métrica | Significado | Ideal |
 |---|---|---|
-| `retrieval_hit_rate` | El fragmento de la página esperada está entre los resultados que pasan el umbral | 1.0 |
+| `retrieval_hit_rate` | El LLM leyó algún fragmento de la página esperada (tras la búsqueda y, si aplica, el reordenamiento) | 1.0 |
 | `citation_accuracy` | La respuesta cita el documento (y la página) esperados | 1.0 |
 | `content_accuracy` | La respuesta contiene el dato esperado (aproximación a «respaldada») | 1.0 |
 | `correct_abstention_rate` | Se abstiene en las preguntas sin respuesta | 1.0 |
@@ -58,6 +58,8 @@ Desde `backend/`, con PostgreSQL levantado (`docker compose up -d db`). Usa la b
 uv run python -m evaluation.run                               # proveedores falsos (gratis)
 uv run python -m evaluation.run --provider openai             # real (~$0.01)
 uv run python -m evaluation.run --provider openai --pause 7   # cuentas con límite de 10 peticiones/min
+uv run python -m evaluation.run --provider openai --strategy simple   # comparar estrategias
+uv run python -m evaluation.run --provider openai --dataset evaluation/book_dataset.json  # libro
 ```
 
 Imprime una tabla por pregunta y las métricas, y guarda el informe completo (incluidas las
@@ -120,14 +122,66 @@ llamar al LLM. Por eso se mantiene **0.25** por defecto: queda muy por debajo de
 similitud con respuesta (0.417), con margen para preguntas peor formuladas, y muy por encima
 de lo ajeno. Con un conjunto mayor convendría revisarlo.
 
+## Conjunto del libro (`backend/evaluation/book_dataset.json`, versión `book-v1`)
+
+El conjunto `eval-v1` tiene documentos cortos y muy distintos entre sí, y no detectó un
+problema que apareció al usarlo con un libro real: *Historia verdadera de la conquista de la
+Nueva España*, de Bernal Díaz del Castillo (dominio público, 96 páginas, ~500 fragmentos).
+En un libro así casi todos los fragmentos hablan de lo mismo (Cortés, indios, guerra,
+Tlascala), y el fragmento con la respuesta quedaba en el puesto 20 de la búsqueda, cuando el
+LLM solo leía los 5 primeros.
+
+23 preguntas con respuesta y página verificadas en el texto: 16 de datos concretos, 2 hechas
+desde una página («¿en qué año fue esto?» con el filtro de la página 65), 1 de resumen y 3 sin
+respuesta (entre ellas «¿en qué año fue esto?» **sin** filtro: es ambigua, lo correcto es
+abstenerse). El PDF no se versiona: para repetirla, coloca el libro en
+`backend/evaluation/pdfs/Conquista-Nueva-Espana-Bernal-Diaz-del-Castillo.pdf`.
+
+Al revisar los fallos de la línea base apareció una pregunta **mal planteada**: «¿Cuántos
+indios de guerra pidió Cortés a Tlascala?» tiene dos respuestas en el libro (5.000 en la
+página 64, para Tepeaca; 10.000 en la 65, para Tezcuco). La respuesta «cinco mil» no era
+inventada. Se precisó la pregunta y se añadió la otra como pregunta aparte **antes** de
+medir los cambios.
+
+### Resultados, 2026-10-24 (OpenAI)
+
+| Configuración | Recupera la página | Respuesta correcta | Abstención falsa | Latencia p50 / máx | Costo por pregunta |
+|---|---|---|---|---|---|
+| Línea base: palabras con AND, 5 fragmentos, sin filtros | 0.737 | 0.75 | 0.25 | 1.8 s / 3.3 s | $0.00019 |
+| Palabras con OR + BM25 y filtros (`simple`) | 0.947 | 0.90 | 0.05 | 1.7 s / 2.7 s | $0.00019 |
+| `progressive` (5 → 5 más → 10 más) | 0.947 | 0.90 | 0.00 | 1.8 s / 5.4 s | $0.00023 |
+| `rerank`, 30 candidatos, razonamiento `low` | 1.0 | 1.0 | 0.00 | 4.1 s / 8.5 s | $0.00087 |
+| `rerank`, 30 candidatos, razonamiento `none` | 1.0 | 1.0 | 0.00 | 3.0 s / 4.7 s | $0.00087 |
+| **`rerank`, 20 candidatos, razonamiento `none` (por defecto)** | **1.0** | **1.0** | **0.00** | **2.9 s / 3.4 s** | **$0.00062** |
+
+En las cuatro preguntas sin respuesta todas las configuraciones se abstienen. Con el conjunto
+`eval-v1` las tres estrategias mantienen 25/25; con la configuración por defecto la mediana
+es 1.7 s y el costo $0.00014 por pregunta (con pocos fragmentos relevantes no hace falta
+reordenar y no hay llamada extra).
+
+**Interpretación.**
+
+- **La búsqueda por palabras era el problema principal.** Exigía todas las palabras (AND) y
+  casi nunca aportaba. Con OR, ponderando cada palabra por su rareza (BM25) y exigiendo al
+  menos la mitad de las palabras importantes, la página correcta pasa del 74 % al 95 %.
+- **El filtro por página** resuelve las preguntas hechas desde lo que se está leyendo.
+- **`progressive`** (idea propuesta durante la revisión) evita abstenciones, pero en b09
+  respondió con otro suceso parecido (la segunda entrada en México, en 1520) en lugar del que
+  se preguntaba: cada intento extra le da al LLM fragmentos menos relevantes. Su peor caso
+  (preguntas sin respuesta) hace tres llamadas.
+- **`rerank`** es la única que acierta todo: el LLM ve 20 candidatos y elige los 5 que de
+  verdad responden. Cuesta una llamada extra (~1 s y unos $0.0004 por pregunta). Elegir
+  fragmentos no necesita razonamiento: con `none` es igual de preciso y más rápido.
+- Con 23 preguntas, la diferencia entre 0.90 y 1.0 son dos preguntas. Sirve para elegir con
+  datos, no para afirmar que el sistema acierta siempre.
+
 ## Hallazgos y mejoras posibles
 
-1. **La búsqueda por palabras clave aporta poco.** `websearch_to_tsquery` exige que el
-   fragmento contenga **todas** las palabras de la pregunta («cuántos», «tengo», «al»…), lo que
-   casi nunca ocurre con preguntas naturales. Mejora posible: combinar los términos con OR y
-   ordenar por `ts_rank`, o usar un diccionario con palabras vacías (`spanish`), y medir el
-   efecto con esta evaluación. Con OpenAI la búsqueda vectorial basta en este conjunto, pero
-   las palabras clave siguen siendo la red de seguridad para códigos y nombres exactos.
+1. **Búsqueda por palabras clave** (resuelto): ver el conjunto del libro. Queda pendiente
+   que «pidio» (sin tilde) no coincide con «pidió»; se resolvería con la extensión `unaccent`
+   de PostgreSQL.
 2. **Las preguntas de resumen dependen de una heurística** de patrones (ADR 0003).
-3. **El conjunto es pequeño** (25 preguntas, 5 documentos): sirve para detectar regresiones
-   y comparar cambios, no para afirmar una precisión general del sistema.
+3. **Los conjuntos son pequeños** (25 + 23 preguntas): sirven para detectar regresiones y
+   comparar cambios, no para afirmar una precisión general del sistema.
+4. **Sin historial de conversación**: «¿y después qué pasó?» sigue sin funcionar; el filtro
+   por página cubre el caso de preguntar sobre lo que se está leyendo.

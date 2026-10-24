@@ -28,9 +28,10 @@ persona que despliega · 💼 solo necesario si el proyecto pasa a ser un SaaS m
 | Mismo modelo para documentos y preguntas; solo se comparan vectores del modelo activo | ✅ | Fase 4, `services/retrieval.py` |
 | Umbral mínimo de similitud además del top-k | ✅ | Fase 4, `RETRIEVAL_MIN_SCORE`. Calibrado con la evaluación real: filtra lo ajeno; la abstención la decide el LLM porque las similitudes se solapan |
 | Top-k acotado por el servidor; el cliente no puede pedir más | ✅ | Fase 4 |
-| Búsqueda híbrida: vectorial + texto completo (`tsvector`), fusionadas con RRF | ✅ | Fase 4. Los embeddings fallan con nombres propios, códigos y números exactos |
+| Búsqueda híbrida: vectorial + texto completo (`tsvector`), fusionadas con RRF | ✅ | Fase 4. Los embeddings fallan con nombres propios, códigos y números exactos. Desde la evaluación con un libro: palabras con OR y puntuación BM25, exigiendo la mitad de las palabras importantes |
 | Búsqueda exacta primero; índice HNSW solo cuando el volumen lo justifique | ✅ | Fase 4: sin índice vectorial. Un índice aproximado puede perder resultados |
-| Reranking con un segundo modelo | 💼 | OpenAI no ofrece API de reranking. Mejora futura; medir su efecto con `evaluation/run.py` antes de adoptarlo |
+| Reordenar candidatos (reranking) antes de generar | ✅ | `RAG_STRATEGY=rerank`: el LLM elige 5 de 20 candidatos. Medido: 90 % → 100 % en un libro largo, +1 s ([ADR 0004](decisions/0004-reordenamiento-con-llm.md)). Un modelo de reranking dedicado sería más barato a gran escala |
+| Filtros por metadatos (documento, página) dentro de la consulta | ✅ | `document_id` / `page_number` en `/query` y `/search`. Es la base de filtros futuros (año fiscal, cliente…) |
 | Filtrar permisos **dentro** de la consulta SQL, nunca después | 💼 | Ver «Aislamiento entre clientes» |
 
 ## 3. Generación

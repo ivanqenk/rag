@@ -62,6 +62,17 @@ class Settings(BaseSettings):
 
     # Contexto enviado al LLM: limita costo y evita diluir la respuesta con texto irrelevante.
     rag_max_context_chars: int = Field(default=8000, ge=500)
+    # Cómo se eligen los fragmentos que lee el LLM (comparativa en docs/rag-evaluation.md):
+    # - "simple": los RETRIEVAL_TOP_K primeros de la búsqueda.
+    # - "rerank": la búsqueda trae RAG_RERANK_CANDIDATES y el LLM elige los RETRIEVAL_TOP_K
+    #   más útiles (una llamada extra por pregunta).
+    # - "progressive": prueba con los primeros RETRIEVAL_TOP_K; si no hay evidencia, con los
+    #   siguientes, y después con el doble (hasta 3 llamadas al LLM).
+    rag_strategy: Literal["simple", "rerank", "progressive"] = "rerank"
+    rag_rerank_candidates: int = Field(default=20, ge=1, le=50)
+    # Elegir fragmentos es más sencillo que redactar la respuesta: menos razonamiento = menos
+    # latencia (ver la comparativa en docs/rag-evaluation.md).
+    rag_rerank_reasoning_effort: Literal["none", "low", "medium", "high"] = "none"
 
     # Resumen automático de cada documento al procesarlo (para preguntas tipo "¿de qué
     # trata?"). Si el documento es más largo, se envían fragmentos repartidos por todo él.

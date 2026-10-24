@@ -3,11 +3,26 @@
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
-class QueryRequest(BaseModel):
-    # Solo la pregunta: el cliente no puede ampliar el contexto ni el costo de la consulta.
+class SearchScope(BaseModel):
+    """Limita la búsqueda a un documento o a una de sus páginas. Solo puede reducir el
+    contexto, nunca ampliarlo (ni el costo de la consulta)."""
+
+    document_id: UUID | None = Field(default=None, description="Buscar solo en este documento")
+    page_number: int | None = Field(
+        default=None, ge=1, description="Buscar solo en esta página (requiere document_id)"
+    )
+
+    @model_validator(mode="after")
+    def _page_requires_document(self) -> "SearchScope":
+        if self.page_number is not None and self.document_id is None:
+            raise ValueError("page_number requiere document_id")
+        return self
+
+
+class QueryRequest(SearchScope):
     # La longitud máxima (MAX_QUERY_CHARS) se valida en el endpoint.
     question: str = Field(min_length=1, description="Pregunta en lenguaje natural")
 

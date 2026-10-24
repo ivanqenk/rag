@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from 'react'
-import { ApiError, askQuestion, documentFileUrl } from '../api/client'
+import { useEffect, useState, type FormEvent } from 'react'
+import { ApiError, askQuestion, documentFileUrl, getDocument } from '../api/client'
 import { routes } from '../router'
 import type { QueryResponse } from '../types/api'
 
@@ -12,9 +12,41 @@ type AskState =
   | { kind: 'answered'; response: QueryResponse }
   | { kind: 'error'; message: string }
 
-export function AskPage() {
+// Pregunta limitada a un documento (desde su página de detalle): solo hace falta su nombre.
+type ScopeState =
+  | { kind: 'loading' }
+  | { kind: 'ready'; filename: string }
+  | { kind: 'error'; message: string }
+
+/** Sin `documentId` pregunta a todos los documentos; con él, solo a ese (y a una página). */
+export function AskPage({ documentId }: { documentId?: string }) {
   const [question, setQuestion] = useState('')
+  const [page, setPage] = useState('')
   const [state, setState] = useState<AskState>({ kind: 'idle' })
+  const [scope, setScope] = useState<ScopeState>({ kind: 'loading' })
+
+  useEffect(() => {
+    if (!documentId) return
+    let cancelled = false
+    getDocument(documentId)
+      .then((document) => {
+        if (!cancelled) setScope({ kind: 'ready', filename: document.original_filename })
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        const message =
+          error instanceof ApiError && error.status === 404
+            ? 'El documento no existe.'
+            : 'No se pudo cargar el documento.'
+        setScope({ kind: 'error', message })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [documentId])
+
+  const pageNumber = Number.parseInt(page, 10)
+  const validPage = page === '' || (Number.isInteger(pageNumber) && pageNumber >= 1)
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault()
@@ -22,7 +54,11 @@ export function AskPage() {
     if (!trimmed) return
     setState({ kind: 'loading' })
     try {
-      setState({ kind: 'answered', response: await askQuestion(trimmed) })
+      const response = await askQuestion(
+        trimmed,
+        documentId ? { documentId, pageNumber: page ? pageNumber : undefined } : undefined,
+      )
+      setState({ kind: 'answered', response })
     } catch (error) {
       setState({
         kind: 'error',
@@ -32,11 +68,45 @@ export function AskPage() {
   }
 
   const loading = state.kind === 'loading'
+  const scopeBlocked = documentId !== undefined && scope.kind !== 'ready'
 
   return (
     <>
       <section className="card" aria-labelledby="ask-title">
-        <h2 id="ask-title">Preguntar a tus documentos</h2>
+        <h2 id="ask-title">
+          {documentId ? 'Preguntar sobre un documento' : 'Preguntar a tus documentos'}
+        </h2>
+        {documentId && (
+          <div className="scope">
+            {scope.kind === 'loading' && <span className="hint">Cargando documento…</span>}
+            {scope.kind === 'error' && (
+              <span className="error" role="alert">
+                {scope.message}
+              </span>
+            )}
+            {scope.kind === 'ready' && (
+              <>
+                <span>
+                  Solo en <strong>{scope.filename}</strong>
+                </span>
+                <span>
+                  <label htmlFor="page">Página</label>{' '}
+                  <input
+                    id="page"
+                    type="number"
+                    min={1}
+                    inputMode="numeric"
+                    placeholder="todas"
+                    value={page}
+                    aria-invalid={!validPage}
+                    onChange={(event) => setPage(event.target.value)}
+                  />
+                </span>
+              </>
+            )}
+            <a href={routes.ask}>Preguntar a todos los documentos</a>
+          </div>
+        )}
         <form onSubmit={onSubmit}>
           <label htmlFor="question">Pregunta</label>
           <textarea
@@ -44,7 +114,9 @@ export function AskPage() {
             rows={3}
             maxLength={MAX_QUESTION_CHARS}
             value={question}
-            placeholder="Ej.: ¿Cuántos días de vacaciones tengo?"
+            placeholder={
+              documentId ? 'Ej.: ¿En qué año fue esto?' : 'Ej.: ¿Cuántos días de vacaciones tengo?'
+            }
             onChange={(event) => setQuestion(event.target.value)}
             onKeyDown={(event) => {
               // Enter envía; Mayús+Enter añade una línea.
@@ -58,7 +130,10 @@ export function AskPage() {
             <span className="hint">
               {question.length}/{MAX_QUESTION_CHARS}
             </span>
-            <button type="submit" disabled={loading || !question.trim()}>
+            <button
+              type="submit"
+              disabled={loading || !question.trim() || !validPage || scopeBlocked}
+            >
               {loading ? 'Buscando…' : 'Preguntar'}
             </button>
           </div>

@@ -4,8 +4,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.schemas.query import SearchScope
 
-class SearchRequest(BaseModel):
+
+class SearchRequest(SearchScope):
     # La longitud máxima depende de la configuración (MAX_QUERY_CHARS) y se valida en el
     # endpoint; aquí solo el mínimo.
     query: str = Field(min_length=1, description="Pregunta o texto a buscar")

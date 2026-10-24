@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
+import { makeDocument } from '../test/fixtures'
 import { jsonResponse, mockFetch } from '../test/mockFetch'
 import type { QueryResponse } from '../types/api'
 import { AskPage } from './AskPage'
@@ -120,5 +121,41 @@ describe('AskPage', () => {
     expect(container.querySelector('img')).toBeNull()
     expect(container.querySelector('script')).toBeNull()
     expect(container.querySelector('a[href*="atacante"]')).toBeNull()
+  })
+
+  it('pregunta solo sobre un documento y una página', async () => {
+    const document = makeDocument({ original_filename: 'cronica.pdf' })
+    const answer: QueryResponse = {
+      answer: 'Fue en 1520.',
+      sources: [{ ...SOURCE, document_id: document.id, page_number: 65 }],
+      insufficient_evidence: false,
+    }
+    const fetchSpy = mockFetch(jsonResponse(document), jsonResponse(answer))
+    render(<AskPage documentId={document.id} />)
+
+    expect(await screen.findByText('cronica.pdf')).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('Página'), '65')
+    await ask('¿En qué año fue esto?')
+
+    expect(await screen.findByText('Fue en 1520.')).toBeInTheDocument()
+    expect(JSON.parse(fetchSpy.mock.calls[1][1]?.body as string)).toEqual({
+      question: '¿En qué año fue esto?',
+      document_id: document.id,
+      page_number: 65,
+    })
+    expect(screen.getByRole('link', { name: 'Preguntar a todos los documentos' })).toHaveAttribute(
+      'href',
+      '#/preguntar',
+    )
+  })
+
+  it('no permite preguntar si el documento no existe', async () => {
+    mockFetch(jsonResponse({ detail: 'Document not found' }, 404))
+    render(<AskPage documentId="11111111-1111-4111-8111-111111111111" />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('El documento no existe.')
+    await userEvent.click(screen.getByLabelText('Pregunta'))
+    await userEvent.paste('¿Algo?')
+    expect(screen.getByRole('button', { name: 'Preguntar' })).toBeDisabled()
   })
 })

@@ -69,12 +69,13 @@ sequenceDiagram
 flowchart TD
     Q[Pregunta] --> V{"≤ 1000 caracteres<br/>y no vacía?"}
     V -->|no| E422[422]
-    V -->|sí| SQ{"¿Pregunta de resumen?<br/>(heurística)"}
+    V -->|sí| SQ{"¿Pregunta de resumen?<br/>(heurística, sin página elegida)"}
     SQ -->|sí, y hay resúmenes| CS["Contexto = resúmenes de documentos"]
-    SQ -->|no, o sin resúmenes| H["Búsqueda híbrida<br/>vectorial (umbral) + palabras (tsvector)<br/>fusión RRF"]
+    SQ -->|no, o sin resúmenes| H["Búsqueda híbrida (opcional: solo un documento o una página)<br/>vectorial (umbral) + palabras (OR + BM25)<br/>fusión RRF"]
     H --> C{"¿Algún fragmento<br/>relevante?"}
     C -->|no| NE["Sin evidencia<br/>(no se llama al LLM)"]
-    C -->|sí| CC["Contexto acotado: top 5, ≤ 8000 caracteres<br/>ids S1, S2…, texto delimitado y escapado"]
+    C -->|sí| RR["Reordenamiento: el LLM elige 5 de 20 candidatos<br/>(RAG_STRATEGY=rerank; ids validados)"]
+    RR --> CC["Contexto acotado: top 5, ≤ 8000 caracteres<br/>ids S1, S2…, texto delimitado y escapado"]
     CS --> LLM
     CC --> LLM["LLM con salida estructurada<br/>answer · cited_sources · insufficient_evidence"]
     LLM --> VC["Verificación de citas en el servidor<br/>se descartan ids inexistentes"]
@@ -128,6 +129,7 @@ texto de la pregunta, de los documentos ni de la respuesta.
 | pgvector en PostgreSQL | Una sola base de datos para metadatos y vectores; transacciones | — |
 | Búsqueda exacta, sin índice HNSW | Con pocos miles de fragmentos es rápida y no pierde resultados; el índice se añade cuando el volumen lo justifique | — |
 | Búsqueda híbrida + RRF | Los embeddings fallan con códigos, nombres y números exactos | — |
+| Reordenar candidatos con el LLM | En documentos largos y repetitivos la respuesta queda fuera de los 5 primeros | [ADR 0004](decisions/0004-reordenamiento-con-llm.md) |
 | Fragmentos por página | Cada fragmento pertenece a una sola página, para poder citarla | — |
 | `VARCHAR` + `CHECK` para el estado | Más fácil de migrar que un `ENUM` nativo | — |
 | Proveedores falsos | Pruebas y desarrollo gratis y deterministas; las pruebas reales van aparte (`-m openai`) | — |

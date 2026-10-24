@@ -64,7 +64,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 button.danger { background: transparent; color: var(--danger); border-color: var(--danger); }
 
 label { font-weight: 600; display: block; margin-bottom: 0.35rem; }
-textarea {
+textarea, input[type="number"] {
   width: 100%; font: inherit; padding: 0.6rem; border-radius: 6px;
   border: 1px solid var(--border); background: var(--bg); color: var(--text); resize: vertical;
 }
@@ -111,6 +111,10 @@ td.actions button + button { margin-left: 0.4rem; }
 .sources li { margin-bottom: 0.75rem; }
 .sources blockquote { margin: 0.35rem 0 0; padding-left: 0.75rem; border-left: 3px solid var(--border); color: var(--muted); }
 
+.links a + a { margin-left: 1.25rem; }
+.scope { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; margin-bottom: 0.75rem; }
+.scope label { display: inline; margin: 0; }
+.scope input[type="number"] { width: 6rem; padding: 0.35rem 0.5rem; resize: none; }
 .metadata { display: grid; grid-template-columns: max-content 1fr; gap: 0.4rem 1rem; }
 .metadata dt { color: var(--muted); }
 .metadata dd { margin: 0; }

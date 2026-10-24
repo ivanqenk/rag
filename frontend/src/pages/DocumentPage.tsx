@@ -70,10 +70,13 @@ export function DocumentPage({ id }: { id: string }) {
               <code>{state.document.id}</code>
             </dd>
           </dl>
-          <p>
+          <p className="links">
             <a href={documentFileUrl(state.document.id)} target="_blank" rel="noopener noreferrer">
               Ver PDF original
             </a>
+            {state.document.status === 'completed' && (
+              <a href={routes.askAbout(state.document.id)}>Preguntar sobre este documento</a>
+            )}
           </p>
           <Summary
             document={state.document}

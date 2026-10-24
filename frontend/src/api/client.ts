@@ -80,10 +80,20 @@ export function reprocessDocument(id: string): Promise<DocumentRead> {
   })
 }
 
-export function askQuestion(question: string): Promise<QueryResponse> {
+/** Limita la pregunta a un documento y, opcionalmente, a una de sus páginas. */
+export interface QueryScope {
+  documentId: string
+  pageNumber?: number
+}
+
+export function askQuestion(question: string, scope?: QueryScope): Promise<QueryResponse> {
   return request<QueryResponse>('/api/v1/query', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({
+      question,
+      document_id: scope?.documentId,
+      page_number: scope?.pageNumber,
+    }),
   })
 }

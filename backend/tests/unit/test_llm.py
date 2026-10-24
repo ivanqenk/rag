@@ -10,11 +10,17 @@ from app.services.llm import (
     FakeLLMProvider,
     LLMAnswer,
     LLMError,
+    LLMRerank,
     LLMSummary,
     OpenAILLMProvider,
     build_llm_provider,
 )
-from app.services.prompts import SUMMARY_SYSTEM_PROMPT, SYSTEM_PROMPT, ContextChunk
+from app.services.prompts import (
+    RERANK_SYSTEM_PROMPT,
+    SUMMARY_SYSTEM_PROMPT,
+    SYSTEM_PROMPT,
+    ContextChunk,
+)
 
 CONTEXT = [ContextChunk("S1", "manual.pdf", 1, "Hay 22 días de vacaciones.")]
 ANSWER = LLMAnswer(answer="22 días.", cited_sources=["S1"], insufficient_evidence=False)
@@ -24,7 +30,9 @@ class FakeResponsesAPI:
     """Imita client.responses.parse y guarda los argumentos recibidos."""
 
     def __init__(
-        self, parsed: LLMAnswer | LLMSummary | None = ANSWER, error: Exception | None = None
+        self,
+        parsed: LLMAnswer | LLMSummary | LLMRerank | None = ANSWER,
+        error: Exception | None = None,
     ) -> None:
         self.kwargs: dict[str, Any] = {}
         self._parsed = parsed
@@ -45,6 +53,7 @@ def make_provider(api: FakeResponsesAPI) -> OpenAILLMProvider:
         api_key="sk-test",
         model="gpt-6-luna",
         reasoning_effort="low",
+        rerank_reasoning_effort="none",
         max_output_tokens=2000,
         timeout_seconds=5,
         max_retries=0,
@@ -81,6 +90,20 @@ def test_openai_summary_uses_its_own_prompt_and_schema() -> None:
     assert api.kwargs["store"] is False
     assert "tools" not in api.kwargs
     assert "<fragmento" in api.kwargs["input"]
+
+
+def test_openai_rerank_uses_its_own_prompt_schema_and_effort() -> None:
+    api = FakeResponsesAPI(parsed=LLMRerank(relevant=["S1"]))
+
+    result = make_provider(api).rerank("¿Cuántos días?", CONTEXT, top_n=5)
+
+    assert result.refs == ["S1"]
+    assert api.kwargs["instructions"] == RERANK_SYSTEM_PROMPT
+    assert api.kwargs["text_format"] is LLMRerank
+    assert api.kwargs["reasoning"] == {"effort": "none"}  # tarea sencilla: menos latencia
+    assert api.kwargs["store"] is False
+    assert "tools" not in api.kwargs
+    assert api.kwargs["input"].startswith("<maximo>5</maximo>")
 
 
 def test_missing_parsed_output_is_an_error() -> None:

@@ -40,8 +40,19 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.services import ingestion, rag, retrieval
 from app.services.embeddings import EmbeddingProvider, build_embedding_provider
-from app.services.llm import LLMProvider, LLMResult, SummaryResult, build_llm_provider
-from app.services.prompts import PROMPT_VERSION, SUMMARY_PROMPT_VERSION, ContextChunk
+from app.services.llm import (
+    LLMProvider,
+    LLMResult,
+    RerankResult,
+    SummaryResult,
+    build_llm_provider,
+)
+from app.services.prompts import (
+    PROMPT_VERSION,
+    RERANK_PROMPT_VERSION,
+    SUMMARY_PROMPT_VERSION,
+    ContextChunk,
+)
 from app.services.storage import LocalFileStorage
 from tests.pdf_factory import make_pdf
 
@@ -72,6 +83,12 @@ class MeteredLLM:
         self.output_tokens += result.output_tokens
         return result
 
+    def rerank(self, question: str, candidates: list[ContextChunk], top_n: int) -> RerankResult:
+        result = self._inner.rerank(question, candidates, top_n)
+        self.input_tokens += result.input_tokens
+        self.output_tokens += result.output_tokens
+        return result
+
 
 @dataclass
 class QuestionResult:
@@ -82,7 +99,9 @@ class QuestionResult:
     abstained: bool
     expected_abstention: bool
     abstention_correct: bool
-    retrieval_hit: bool | None  # None si no aplica (resumen o sin respuesta)
+    # Si el LLM leyó algún fragmento de la página esperada. None si no aplica (resumen o
+    # sin respuesta).
+    retrieval_hit: bool | None
     best_vector_similarity: float | None
     citation_correct: bool | None
     content_correct: bool | None
@@ -100,6 +119,7 @@ class Report:
     embedding_model: str
     llm_model: str
     prompt_versions: list[str]
+    rag_strategy: str
     retrieval_min_score: float
     started_at: str
     metrics: dict[str, Any] = field(default_factory=dict)
@@ -125,6 +145,17 @@ def _includes(answer: str, groups: list[list[str]]) -> bool:
     return all(any(_fold(option) in folded for option in group) for group in groups)
 
 
+def _document_bytes(spec: dict[str, Any], dataset_dir: Path) -> bytes:
+    """Un documento del conjunto: texto por páginas (se genera el PDF) o un PDF real
+    (`path`, relativo al archivo del conjunto; no se versiona)."""
+    if "pages" in spec:
+        return make_pdf(spec["pages"])
+    path = dataset_dir / spec["path"]
+    if not path.is_file():
+        raise SystemExit(f"Falta {path}: este conjunto usa un PDF que no está en el repositorio.")
+    return path.read_bytes()
+
+
 def _rate(values: list[bool]) -> float | None:
     return round(sum(values) / len(values), 3) if values else None
 
@@ -147,6 +178,7 @@ def run_evaluation(
     dataset: dict[str, Any],
     pause_seconds: float = 0,
     provider_label: str = "fake",
+    dataset_dir: Path = DATASET_PATH.parent,
 ) -> Report:
     metered = MeteredLLM(llm)
     report = Report(
@@ -154,7 +186,8 @@ def run_evaluation(
         provider=provider_label,
         embedding_model=embedder.model_name,
         llm_model=llm.model_name,
-        prompt_versions=[PROMPT_VERSION, SUMMARY_PROMPT_VERSION],
+        prompt_versions=[PROMPT_VERSION, RERANK_PROMPT_VERSION, SUMMARY_PROMPT_VERSION],
+        rag_strategy=settings.rag_strategy,
         retrieval_min_score=settings.retrieval_min_score,
         started_at=datetime.now(UTC).isoformat(timespec="seconds"),
     )
@@ -164,7 +197,7 @@ def run_evaluation(
         document_ids: dict[str, UUID] = {}
         for spec in dataset["documents"]:
             document = ingestion.register_upload(
-                session, storage, settings, spec["filename"], make_pdf(spec["pages"])
+                session, storage, settings, spec["filename"], _document_bytes(spec, dataset_dir)
             )
             document = ingestion.process_document(
                 session, storage, embedder, metered, settings, document.id
@@ -197,26 +230,38 @@ def _evaluate_question(
     expected_doc = document_ids.get(spec["document"]) if spec["document"] else None
     expected_page = spec["page"]
     expected_abstention = spec["type"] == "unanswerable"
+    # Preguntas hechas desde un documento o una página concretos ("¿en qué año fue esto?").
+    scope = spec.get("filter", {})
+    filter_document = document_ids[scope["document"]] if "document" in scope else None
+    filter_page = scope.get("page")
 
-    # Búsqueda aparte para medir la recuperación (repite el embedding de la pregunta: costo
-    # despreciable). Sin umbral, para ver también la similitud de lo que se descartaría.
+    # Búsqueda aparte, sin umbral, solo para ver la similitud (calibrar el umbral). Repite el
+    # embedding de la pregunta: costo despreciable.
     unfiltered = settings.model_copy(update={"retrieval_min_score": 0.0})
-    candidates = retrieval.search(session, embedder, unfiltered, question, settings.retrieval_top_k)
+    candidates = retrieval.search(
+        session,
+        embedder,
+        unfiltered,
+        question,
+        settings.retrieval_top_k,
+        filter_document,
+        filter_page,
+    )
     similarities = [c.vector_similarity for c in candidates if c.vector_similarity is not None]
     best_similarity = round(max(similarities), 3) if similarities else None
-    retrieval_hit: bool | None = None
-    if expected_doc is not None and expected_page is not None:
-        accepted = retrieval.search(session, embedder, settings, question, settings.retrieval_top_k)
-        retrieval_hit = any(
-            r.document_id == expected_doc and r.page_number == expected_page for r in accepted
-        )
 
     tokens_before = (llm.input_tokens, llm.output_tokens)
     started = time.perf_counter()
-    answer = rag.answer_question(session, embedder, llm, settings, question)
+    answer = rag.answer_question(
+        session, embedder, llm, settings, question, filter_document, filter_page
+    )
     latency_ms = (time.perf_counter() - started) * 1000
     input_tokens = llm.input_tokens - tokens_before[0]
     output_tokens = llm.output_tokens - tokens_before[1]
+
+    retrieval_hit: bool | None = None
+    if expected_doc is not None and expected_page is not None:
+        retrieval_hit = (expected_doc, expected_page) in answer.considered
 
     citation_correct: bool | None = None
     content_correct: bool | None = None
@@ -293,7 +338,7 @@ def print_report(report: Report) -> None:
     print(
         f"\nEvaluación {report.dataset_version} · proveedor={report.provider} · "
         f"embeddings={report.embedding_model} · LLM={report.llm_model} · "
-        f"umbral={report.retrieval_min_score}\n"
+        f"estrategia={report.rag_strategy} · umbral={report.retrieval_min_score}\n"
     )
     print(
         f"{'id':4} {'tipo':15} {'recup':5} {'cita':4} {'datos':5} {'abst':4} {'sim':>5} {'ms':>7}"
@@ -314,6 +359,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--provider", choices=["fake", "openai"], default="fake")
     parser.add_argument(
+        "--dataset", type=Path, default=DATASET_PATH, help="conjunto (por defecto dataset.json)"
+    )
+    parser.add_argument(
+        "--strategy",
+        choices=["simple", "rerank", "progressive"],
+        help="RAG_STRATEGY a evaluar (por defecto, la de la configuración)",
+    )
+    parser.add_argument(
         "--pause", type=float, default=0, help="segundos entre llamadas (límites por minuto)"
     )
     args = parser.parse_args()
@@ -322,12 +375,15 @@ def main() -> None:
     settings = get_settings().model_copy(
         update={"embeddings_provider": provider, "llm_provider": provider}
     )
+    if args.strategy:
+        settings = settings.model_copy(update={"rag_strategy": args.strategy})
     if provider == "fake":
         # Calibrado para el buscador falso (ver tests/integration/conftest.py).
         settings = settings.model_copy(update={"retrieval_min_score": 0.2})
     database_url = os.environ.get("EVAL_DATABASE_URL", DEFAULT_DATABASE_URL)
 
-    dataset = json.loads(DATASET_PATH.read_text(encoding="utf-8"))
+    dataset_path: Path = args.dataset.resolve()
+    dataset = json.loads(dataset_path.read_text(encoding="utf-8"))
     engine = prepare_database(database_url)
     report = run_evaluation(
         engine,
@@ -337,12 +393,13 @@ def main() -> None:
         dataset,
         pause_seconds=args.pause,
         provider_label=provider,
+        dataset_dir=dataset_path.parent,
     )
     print_report(report)
 
     RESULTS_DIR.mkdir(exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    output = RESULTS_DIR / f"{provider}-{stamp}.json"
+    output = RESULTS_DIR / f"{dataset['version']}-{provider}-{settings.rag_strategy}-{stamp}.json"
     output.write_text(json.dumps(asdict(report), ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\nInforme completo: {output.relative_to(BACKEND_DIR)}")
 

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
+from app.repositories.documents import DocumentRepository
 from app.schemas.search import SearchRequest, SearchResponse, SearchResultItem
 from app.services import retrieval
 from app.services.embeddings import EmbeddingError, EmbeddingProvider, get_embedding_provider
@@ -19,6 +20,7 @@ router = APIRouter(prefix="/api/v1", tags=["search"])
     "/search",
     response_model=SearchResponse,
     responses={
+        404: {"description": "El documento indicado en document_id no existe"},
         422: {"description": "Consulta vacía, demasiado larga o top_k fuera de rango"},
         503: {"description": "Proveedor de embeddings no configurado o no disponible"},
     },
@@ -45,8 +47,13 @@ def search_chunks(
             f"top_k no puede superar {settings.retrieval_max_top_k}.",
         )
 
+    if request.document_id and DocumentRepository(session).get(request.document_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Documento no encontrado.")
+
     try:
-        results = retrieval.search(session, embedder, settings, query, top_k)
+        results = retrieval.search(
+            session, embedder, settings, query, top_k, request.document_id, request.page_number
+        )
     except EmbeddingError as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, exc.message) from None
 

@@ -16,9 +16,11 @@ from pydantic import BaseModel, Field
 from app.core.config import Settings, get_settings
 from app.services.openai_errors import is_quota_exhausted
 from app.services.prompts import (
+    RERANK_SYSTEM_PROMPT,
     SUMMARY_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
     ContextChunk,
+    build_rerank_message,
     build_summary_message,
     build_user_message,
 )
@@ -36,6 +38,19 @@ class LLMAnswer(BaseModel):
 
 class LLMSummary(BaseModel):
     summary: str = Field(description="Resumen del documento en texto plano")
+
+
+class LLMRerank(BaseModel):
+    relevant: list[str] = Field(
+        description="Ids de los fragmentos útiles para responder, del más al menos útil"
+    )
+
+
+@dataclass(frozen=True)
+class RerankResult:
+    refs: list[str]
+    input_tokens: int
+    output_tokens: int
 
 
 @dataclass(frozen=True)
@@ -70,6 +85,10 @@ class LLMProvider(Protocol):
 
     def generate_summary(self, filename: str, chunks: Sequence[ContextChunk]) -> SummaryResult: ...
 
+    def rerank(
+        self, question: str, candidates: Sequence[ContextChunk], top_n: int
+    ) -> RerankResult: ...
+
 
 class OpenAILLMProvider:
     def __init__(
@@ -78,12 +97,14 @@ class OpenAILLMProvider:
         api_key: str,
         model: str,
         reasoning_effort: str,
+        rerank_reasoning_effort: str,
         max_output_tokens: int,
         timeout_seconds: float,
         max_retries: int,
     ) -> None:
         self.model_name = model
         self._reasoning_effort = reasoning_effort
+        self._rerank_reasoning_effort = rerank_reasoning_effort
         self._max_output_tokens = max_output_tokens
         self._client = openai.OpenAI(
             api_key=api_key, timeout=timeout_seconds, max_retries=max_retries
@@ -103,8 +124,23 @@ class OpenAILLMProvider:
             summary=parsed.summary, input_tokens=input_tokens, output_tokens=output_tokens
         )
 
+    def rerank(self, question: str, candidates: Sequence[ContextChunk], top_n: int) -> RerankResult:
+        parsed, input_tokens, output_tokens = self._parse(
+            RERANK_SYSTEM_PROMPT,
+            build_rerank_message(question, candidates, top_n),
+            LLMRerank,
+            reasoning_effort=self._rerank_reasoning_effort,
+        )
+        return RerankResult(
+            refs=parsed.relevant, input_tokens=input_tokens, output_tokens=output_tokens
+        )
+
     def _parse(
-        self, instructions: str, user_input: str, schema: type[_Parsed]
+        self,
+        instructions: str,
+        user_input: str,
+        schema: type[_Parsed],
+        reasoning_effort: str | None = None,
     ) -> tuple[_Parsed, int, int]:
         """Llama al modelo con salida estructurada y traduce los errores a LLMError."""
         try:
@@ -113,7 +149,7 @@ class OpenAILLMProvider:
                 instructions=instructions,
                 input=user_input,
                 text_format=schema,
-                reasoning={"effort": self._reasoning_effort},
+                reasoning={"effort": reasoning_effort or self._reasoning_effort},
                 max_output_tokens=self._max_output_tokens,
                 # Privacidad: no guardar la conversación en OpenAI (no la necesitamos después).
                 store=False,
@@ -144,7 +180,8 @@ class FakeLLMProvider:
     Por defecto "responde" con el inicio de la primera fuente y la cita. Con `scripted`
     devuelve siempre esa respuesta, para simular comportamientos concretos del modelo
     (citas inventadas, abstención…). El "resumen" es el nombre del archivo y el inicio
-    del primer fragmento. Guarda las llamadas para poder inspeccionarlas.
+    del primer fragmento; el "reordenamiento" conserva el orden del buscador. Guarda las
+    llamadas para poder inspeccionarlas.
     """
 
     model_name = "fake-llm-v1"
@@ -153,6 +190,7 @@ class FakeLLMProvider:
         self._scripted = scripted
         self.calls: list[tuple[str, list[ContextChunk]]] = []
         self.summary_calls: list[tuple[str, list[ContextChunk]]] = []
+        self.rerank_calls: list[tuple[str, list[ContextChunk], int]] = []
 
     def generate_answer(self, question: str, context: Sequence[ContextChunk]) -> LLMResult:
         self.calls.append((question, list(context)))
@@ -180,6 +218,11 @@ class FakeLLMProvider:
             output_tokens=0,
         )
 
+    def rerank(self, question: str, candidates: Sequence[ContextChunk], top_n: int) -> RerankResult:
+        self.rerank_calls.append((question, list(candidates), top_n))
+        refs = [chunk.ref for chunk in candidates[:top_n]]
+        return RerankResult(refs=refs, input_tokens=0, output_tokens=0)
+
 
 def build_llm_provider(settings: Settings) -> LLMProvider:
     if settings.llm_provider == "fake":
@@ -190,6 +233,7 @@ def build_llm_provider(settings: Settings) -> LLMProvider:
         api_key=settings.openai_api_key.get_secret_value(),
         model=settings.llm_model,
         reasoning_effort=settings.llm_reasoning_effort,
+        rerank_reasoning_effort=settings.rag_rerank_reasoning_effort,
         max_output_tokens=settings.llm_max_output_tokens,
         timeout_seconds=settings.llm_timeout_seconds,
         max_retries=settings.llm_max_retries,

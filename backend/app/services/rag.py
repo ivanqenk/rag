@@ -6,12 +6,15 @@ inventadas) y, si no queda ninguna cita válida, la respuesta se trata como no r
 
 Las preguntas de resumen ("¿de qué trata?") no usan la búsqueda: usan como contexto los
 resúmenes generados al procesar cada documento (ver services/summaries.py).
+
+Qué fragmentos lee el LLM depende de RAG_STRATEGY (simple, rerank o progressive; ver
+core/config.py). La pregunta puede limitarse a un documento o a una de sus páginas.
 """
 
 import logging
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 from uuid import UUID
 
@@ -21,8 +24,8 @@ from app.core.config import Settings
 from app.repositories.documents import DocumentRepository
 from app.services import retrieval
 from app.services.embeddings import EmbeddingProvider
-from app.services.llm import LLMProvider, LLMResult
-from app.services.prompts import PROMPT_VERSION, ContextChunk
+from app.services.llm import LLMError, LLMProvider
+from app.services.prompts import PROMPT_VERSION, RERANK_PROMPT_VERSION, ContextChunk
 from app.services.summaries import is_summary_question
 
 logger = logging.getLogger(__name__)
@@ -52,6 +55,23 @@ class RagAnswer:
     answer: str
     sources: list[Source]
     insufficient_evidence: bool
+    # (documento, página) de todo lo que leyó el LLM. Solo para la evaluación; no sale por
+    # la API.
+    considered: list[tuple[UUID, int | None]] = field(default_factory=list)
+
+
+@dataclass
+class _Usage:
+    """Llamadas y tokens del LLM en una consulta (puede haber varias: rerank, progressive)."""
+
+    calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+    def add(self, input_tokens: int, output_tokens: int) -> None:
+        self.calls += 1
+        self.input_tokens += input_tokens
+        self.output_tokens += output_tokens
 
 
 def build_context(
@@ -125,33 +145,133 @@ def answer_question(
     llm: LLMProvider,
     settings: Settings,
     question: str,
+    document_id: UUID | None = None,
+    page_number: int | None = None,
 ) -> RagAnswer:
+    """Responde con los documentos (o solo con `document_id`, o solo con una de sus páginas)."""
     started = time.perf_counter()
-    context: list[tuple[ContextChunk, Source]] = []
+    usage = _Usage()
+    attempts: list[list[tuple[ContextChunk, Source]]] = []
     retrieved = 0
-    if is_summary_question(question):
+    # Con una página concreta la pregunta es sobre esa página, no sobre todo el documento.
+    if page_number is None and is_summary_question(question):
         documents = DocumentRepository(session).list_summaries(MAX_SUMMARY_DOCUMENTS)
-        summaries = [(d.id, d.original_filename, d.summary or "") for d in documents]
-        context = build_summary_context(summaries, settings.rag_max_context_chars)
-        retrieved = len(documents)
-    if not context:
-        # Pregunta normal, o de resumen sin resúmenes disponibles: búsqueda RAG habitual.
-        results = retrieval.search(session, embedder, settings, question, settings.retrieval_top_k)
-        retrieved = len(results)
-        context = [
-            (chunk, _source_from_result(result))
-            for chunk, result in build_context(results, settings.rag_max_context_chars)
+        summaries = [
+            (d.id, d.original_filename, d.summary or "")
+            for d in documents
+            if document_id is None or d.id == document_id
         ]
+        summary_context = build_summary_context(summaries, settings.rag_max_context_chars)
+        if summary_context:
+            attempts = [summary_context]
+            retrieved = len(summaries)
+    if not attempts:
+        # Pregunta normal, o de resumen sin resúmenes disponibles: búsqueda RAG habitual.
+        results, groups = _select_chunks(
+            session, embedder, llm, settings, question, document_id, page_number, usage
+        )
+        retrieved = len(results)
+        for group in groups:
+            context = build_context(group, settings.rag_max_context_chars)
+            if context:
+                attempts.append([(chunk, _source_from_result(r)) for chunk, r in context])
     retrieval_ms = (time.perf_counter() - started) * 1000
 
-    if not context:
-        # Sin evidencia no se llama al LLM: ahorra costo y evita respuestas inventadas.
-        _log(settings, llm, question, retrieved, 0, 0, None, retrieval_ms, 0, True)
-        return RagAnswer(answer=NO_EVIDENCE_ANSWER, sources=[], insufficient_evidence=True)
-
+    answer = RagAnswer(answer=NO_EVIDENCE_ANSWER, sources=[], insufficient_evidence=True)
+    considered: list[tuple[UUID, int | None]] = []
     llm_started = time.perf_counter()
-    llm_result = llm.generate_answer(question, [chunk for chunk, _ in context])
+    # Sin evidencia no se llama al LLM: ahorra costo y evita respuestas inventadas. Con
+    # "progressive" hay varios intentos; se para en el primero que tenga respuesta.
+    for context in attempts:
+        considered += [(source.document_id, source.page_number) for _, source in context]
+        candidate = _generate(llm, question, context, usage)
+        if not candidate.insufficient_evidence:
+            answer = candidate
+            break
     llm_ms = (time.perf_counter() - llm_started) * 1000
+
+    _log(
+        settings,
+        llm,
+        question,
+        retrieved,
+        len(considered),
+        len(answer.sources),
+        usage,
+        retrieval_ms,
+        llm_ms,
+        answer.insufficient_evidence,
+    )
+    return RagAnswer(
+        answer=answer.answer,
+        sources=answer.sources,
+        insufficient_evidence=answer.insufficient_evidence,
+        considered=considered,
+    )
+
+
+def _select_chunks(
+    session: Session,
+    embedder: EmbeddingProvider,
+    llm: LLMProvider,
+    settings: Settings,
+    question: str,
+    document_id: UUID | None,
+    page_number: int | None,
+    usage: _Usage,
+) -> tuple[list[retrieval.SearchResult], list[list[retrieval.SearchResult]]]:
+    """Busca y decide qué grupos de fragmentos lee el LLM, en orden, según RAG_STRATEGY."""
+    top_k = settings.retrieval_top_k
+    strategy = settings.rag_strategy
+    if strategy == "rerank":
+        wanted = max(settings.rag_rerank_candidates, top_k)
+    elif strategy == "progressive":
+        wanted = top_k * 4  # 5 + 5 + 10 con el valor por defecto
+    else:
+        wanted = top_k
+    results = retrieval.search(
+        session, embedder, settings, question, wanted, document_id, page_number
+    )
+
+    if strategy == "progressive":
+        windows = [(0, top_k), (top_k, top_k * 2), (top_k * 2, top_k * 4)]
+        return results, [results[a:b] for a, b in windows if results[a:b]]
+    if strategy == "rerank" and len(results) > top_k:
+        return results, [_rerank(llm, question, results, top_k, usage)]
+    return results, [results[:top_k]]
+
+
+def _rerank(
+    llm: LLMProvider,
+    question: str,
+    results: list[retrieval.SearchResult],
+    top_k: int,
+    usage: _Usage,
+) -> list[retrieval.SearchResult]:
+    """El LLM elige los `top_k` candidatos más útiles. Si falla o no elige ninguno, se usa el
+    orden de la búsqueda: el reordenamiento mejora la precisión, pero no es imprescindible."""
+    candidates = [
+        ContextChunk(ref=f"C{i}", filename=r.filename, page_number=r.page_number, text=r.text)
+        for i, r in enumerate(results, start=1)
+    ]
+    by_ref = {chunk.ref: result for chunk, result in zip(candidates, results, strict=True)}
+    try:
+        reranked = llm.rerank(question, candidates, top_k)
+    except LLMError:
+        logger.warning("Falló el reordenamiento; se usa el orden de la búsqueda")
+        return results[:top_k]
+    usage.add(reranked.input_tokens, reranked.output_tokens)
+    # Igual que con las citas: solo ids que existen, sin duplicados.
+    chosen = [by_ref[ref] for ref in dict.fromkeys(reranked.refs) if ref in by_ref][:top_k]
+    return chosen or results[:top_k]
+
+
+def _generate(
+    llm: LLMProvider, question: str, context: list[tuple[ContextChunk, Source]], usage: _Usage
+) -> RagAnswer:
+    """Una llamada al LLM con su verificación de citas."""
+    llm_result = llm.generate_answer(question, [chunk for chunk, _ in context])
+    usage.add(llm_result.input_tokens, llm_result.output_tokens)
 
     by_ref = {chunk.ref: source for chunk, source in context}
     # Verificación de citas: solo ids que existen en el contexto enviado, sin duplicados.
@@ -160,29 +280,13 @@ def answer_question(
     if invented:
         logger.warning("El LLM citó %d fuentes inexistentes; se descartan", invented)
 
-    insufficient = llm_result.answer.insufficient_evidence or not valid_refs
-    if insufficient:
-        answer = RagAnswer(answer=NO_EVIDENCE_ANSWER, sources=[], insufficient_evidence=True)
-    else:
-        answer = RagAnswer(
-            answer=llm_result.answer.answer,
-            sources=[by_ref[ref] for ref in valid_refs],
-            insufficient_evidence=False,
-        )
-
-    _log(
-        settings,
-        llm,
-        question,
-        retrieved,
-        len(context),
-        len(valid_refs),
-        llm_result,
-        retrieval_ms,
-        llm_ms,
-        insufficient,
+    if llm_result.answer.insufficient_evidence or not valid_refs:
+        return RagAnswer(answer=NO_EVIDENCE_ANSWER, sources=[], insufficient_evidence=True)
+    return RagAnswer(
+        answer=llm_result.answer.answer,
+        sources=[by_ref[ref] for ref in valid_refs],
+        insufficient_evidence=False,
     )
-    return answer
 
 
 def _log(
@@ -192,31 +296,32 @@ def _log(
     retrieved: int,
     context_chunks: int,
     cited: int,
-    llm_result: LLMResult | None,
+    usage: _Usage,
     retrieval_ms: float,
     llm_ms: float,
     insufficient: bool,
 ) -> None:
     """Métricas por consulta. Nunca el texto de la pregunta, del contexto ni de la respuesta."""
-    input_tokens = llm_result.input_tokens if llm_result else 0
-    output_tokens = llm_result.output_tokens if llm_result else 0
     cost = (
-        input_tokens * settings.llm_input_price_per_mtok
-        + output_tokens * settings.llm_output_price_per_mtok
+        usage.input_tokens * settings.llm_input_price_per_mtok
+        + usage.output_tokens * settings.llm_output_price_per_mtok
     ) / 1_000_000
     logger.info(
-        "Consulta RAG: %d caracteres, %d recuperados, %d en contexto, %d citados, "
-        "sin_evidencia=%s, modelo=%s, prompt=%s, tokens=%d/%d, costo~$%.6f, "
-        "recuperación %.0f ms, LLM %.0f ms",
+        "Consulta RAG: %d caracteres, %d recuperados, %d leídos por el LLM, %d citados, "
+        "sin_evidencia=%s, estrategia=%s, modelo=%s, prompts=%s/%s, llamadas=%d, "
+        "tokens=%d/%d, costo~$%.6f, recuperación %.0f ms, LLM %.0f ms",
         len(question),
         retrieved,
         context_chunks,
         cited,
         insufficient,
+        settings.rag_strategy,
         llm.model_name,
         PROMPT_VERSION,
-        input_tokens,
-        output_tokens,
+        RERANK_PROMPT_VERSION,
+        usage.calls,
+        usage.input_tokens,
+        usage.output_tokens,
         cost,
         retrieval_ms,
         llm_ms,
