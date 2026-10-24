@@ -33,6 +33,8 @@ class DocumentRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     processed_at: datetime | None = None
+    # Generado por un LLM: el cliente debe mostrarlo como texto, nunca como HTML.
+    summary: str | None = None
 
 
 class DocumentPage(BaseModel):

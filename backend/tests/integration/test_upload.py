@@ -124,7 +124,7 @@ def test_failure_while_saving_chunks_leaves_no_partial_chunks(
 
     monkeypatch.setattr(DocumentRepository, "replace_chunks", replace_then_crash)
 
-    result = ingestion.process_document(db_session, storage, embedder, settings, document.id)
+    result = ingestion.process_document(db_session, storage, embedder, None, settings, document.id)
 
     assert result.status == "failed"
     assert result.error_code == "processing_error"
@@ -141,9 +141,9 @@ def test_reprocessing_replaces_chunks_instead_of_duplicating(
         db_session, storage, settings, "manual.pdf", make_pdf([LONG_TEXT])
     )
 
-    ingestion.process_document(db_session, storage, embedder, settings, document.id)
+    ingestion.process_document(db_session, storage, embedder, None, settings, document.id)
     first_count = len(DocumentRepository(db_session).list_chunks(document.id))
-    ingestion.process_document(db_session, storage, embedder, settings, document.id)
+    ingestion.process_document(db_session, storage, embedder, None, settings, document.id)
 
     assert len(DocumentRepository(db_session).list_chunks(document.id)) == first_count
 
@@ -178,11 +178,11 @@ def test_embedding_failure_marks_failed_and_keeps_previous_chunks(
     document = ingestion.register_upload(
         db_session, storage, settings, "manual.pdf", make_pdf([LONG_TEXT])
     )
-    ingestion.process_document(db_session, storage, embedder, settings, document.id)
+    ingestion.process_document(db_session, storage, embedder, None, settings, document.id)
     previous = [c.id for c in DocumentRepository(db_session).list_chunks(document.id)]
 
     result = ingestion.process_document(
-        db_session, storage, FailingEmbeddingProvider(), settings, document.id
+        db_session, storage, FailingEmbeddingProvider(), None, settings, document.id
     )
 
     assert result.status == "failed"
@@ -200,7 +200,7 @@ def test_reprocess_endpoint_recovers_a_failed_document(
         db_session, storage, settings, "manual.pdf", make_pdf([LONG_TEXT])
     )
     ingestion.process_document(
-        db_session, storage, FailingEmbeddingProvider(), settings, document.id
+        db_session, storage, FailingEmbeddingProvider(), None, settings, document.id
     )
 
     response = client.post(f"/api/v1/documents/{document.id}/reprocess")

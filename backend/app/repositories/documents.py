@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
+from app.schemas.document import DocumentStatus
 from app.services.chunking import TextChunk
 
 
@@ -89,6 +90,16 @@ class DocumentRepository:
             )
             for chunk, embedding in zip(chunks, embeddings, strict=True)
         )
+
+    def list_summaries(self, limit: int) -> list[Document]:
+        """Documentos procesados que tienen resumen, más recientes primero."""
+        statement = (
+            select(Document)
+            .where(Document.status == DocumentStatus.COMPLETED, Document.summary.is_not(None))
+            .order_by(Document.created_at.desc(), Document.id.desc())
+            .limit(limit)
+        )
+        return list(self._session.scalars(statement))
 
     def list_chunks(self, document_id: UUID) -> list[DocumentChunk]:
         statement = (

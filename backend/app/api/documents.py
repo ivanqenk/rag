@@ -13,6 +13,7 @@ from app.repositories.documents import DocumentRepository, get_document_reposito
 from app.schemas.document import DocumentPage, DocumentRead
 from app.services import ingestion
 from app.services.embeddings import EmbeddingProvider, get_embedding_provider
+from app.services.llm import LLMProvider, get_optional_llm_provider
 from app.services.pdf_extraction import InvalidPdfError
 from app.services.storage import LocalFileStorage, get_storage
 
@@ -20,6 +21,8 @@ router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 
 Repository = Annotated[DocumentRepository, Depends(get_document_repository)]
 Embedder = Annotated[EmbeddingProvider, Depends(get_embedding_provider)]
+# Opcional: sin LLM configurado el documento se procesa igual, solo que sin resumen.
+OptionalLLM = Annotated[LLMProvider | None, Depends(get_optional_llm_provider)]
 
 MAX_PAGE_SIZE = 100
 
@@ -41,9 +44,10 @@ def upload_document(
     session: Annotated[Session, Depends(get_db)],
     storage: Annotated[LocalFileStorage, Depends(get_storage)],
     embedder: Embedder,
+    llm: OptionalLLM,
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> DocumentRead:
-    """Sube un PDF y lo procesa (extracción, fragmentación y embeddings).
+    """Sube un PDF y lo procesa (extracción, fragmentación, embeddings y resumen).
 
     Devuelve 201 aunque el procesamiento falle (p. ej. PDF sin texto): el documento queda
     registrado con `status = "failed"` y un `error_message` explicativo.
@@ -70,7 +74,7 @@ def upload_document(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.message) from None
 
     # Procesamiento síncrono en el MVP; en la Fase 8 esto será un mensaje a una cola.
-    document = ingestion.process_document(session, storage, embedder, settings, document.id)
+    document = ingestion.process_document(session, storage, embedder, llm, settings, document.id)
     return DocumentRead.model_validate(document)
 
 
@@ -125,11 +129,12 @@ def reprocess_document(
     session: Annotated[Session, Depends(get_db)],
     storage: Annotated[LocalFileStorage, Depends(get_storage)],
     embedder: Embedder,
+    llm: OptionalLLM,
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> DocumentRead:
     """Vuelve a procesar un documento: tras un fallo, o tras cambiar de modelo de embeddings."""
     document = _get_or_404(repository, document_id)
-    document = ingestion.process_document(session, storage, embedder, settings, document.id)
+    document = ingestion.process_document(session, storage, embedder, llm, settings, document.id)
     return DocumentRead.model_validate(document)
 
 

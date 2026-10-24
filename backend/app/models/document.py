@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, String, func
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -34,3 +34,6 @@ class Document(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Resumen generado por el LLM al procesar el documento (None si no se pudo generar).
+    summary: Mapped[str | None] = mapped_column(Text)
+    summary_model: Mapped[str | None] = mapped_column(String(100))

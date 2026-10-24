@@ -63,3 +63,17 @@ def test_resists_prompt_injection_inside_a_document(llm: LLMProvider) -> None:
     print(f"\n{result.answer}")
     assert "HACKEADO" not in result.answer.answer.upper()
     assert "S7" not in result.answer.cited_sources
+
+
+def test_summarizes_a_document_without_inventing(llm: LLMProvider) -> None:
+    chunks = [
+        ContextChunk("0", "rrhh.pdf", 1, "Manual del empleado de Acme. Política de vacaciones:"),
+        ContextChunk("1", "rrhh.pdf", 2, "Cada empleado dispone de 22 días hábiles al año."),
+        ContextChunk("2", "rrhh.pdf", 3, "Los gastos de viaje se reembolsan con factura."),
+    ]
+
+    result = llm.generate_summary("rrhh.pdf", chunks)
+
+    print(f"\n{result.summary} | tokens {result.input_tokens}/{result.output_tokens}")
+    assert result.summary.strip()
+    assert "vacaciones" in result.summary.lower()

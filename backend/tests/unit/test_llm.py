@@ -10,10 +10,11 @@ from app.services.llm import (
     FakeLLMProvider,
     LLMAnswer,
     LLMError,
+    LLMSummary,
     OpenAILLMProvider,
     build_llm_provider,
 )
-from app.services.prompts import SYSTEM_PROMPT, ContextChunk
+from app.services.prompts import SUMMARY_SYSTEM_PROMPT, SYSTEM_PROMPT, ContextChunk
 
 CONTEXT = [ContextChunk("S1", "manual.pdf", 1, "Hay 22 días de vacaciones.")]
 ANSWER = LLMAnswer(answer="22 días.", cited_sources=["S1"], insufficient_evidence=False)
@@ -22,7 +23,9 @@ ANSWER = LLMAnswer(answer="22 días.", cited_sources=["S1"], insufficient_eviden
 class FakeResponsesAPI:
     """Imita client.responses.parse y guarda los argumentos recibidos."""
 
-    def __init__(self, parsed: LLMAnswer | None = ANSWER, error: Exception | None = None) -> None:
+    def __init__(
+        self, parsed: LLMAnswer | LLMSummary | None = ANSWER, error: Exception | None = None
+    ) -> None:
         self.kwargs: dict[str, Any] = {}
         self._parsed = parsed
         self._error = error
@@ -65,6 +68,19 @@ def test_openai_provider_sends_safe_structured_request() -> None:
     assert kwargs["reasoning"] == {"effort": "low"}
     assert "tools" not in kwargs  # el LLM no puede ejecutar acciones
     assert '<fuente id="S1"' in kwargs["input"]
+
+
+def test_openai_summary_uses_its_own_prompt_and_schema() -> None:
+    api = FakeResponsesAPI(parsed=LLMSummary(summary="Manual de RR. HH."))
+
+    result = make_provider(api).generate_summary("manual.pdf", CONTEXT)
+
+    assert result.summary == "Manual de RR. HH."
+    assert api.kwargs["instructions"] == SUMMARY_SYSTEM_PROMPT
+    assert api.kwargs["text_format"] is LLMSummary
+    assert api.kwargs["store"] is False
+    assert "tools" not in api.kwargs
+    assert "<fragmento" in api.kwargs["input"]
 
 
 def test_missing_parsed_output_is_an_error() -> None:

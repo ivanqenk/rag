@@ -19,6 +19,7 @@ from app.repositories.documents import DocumentRepository
 from app.schemas.document import DocumentStatus
 from app.services.chunking import chunk_pages
 from app.services.embeddings import EmbeddingError, EmbeddingProvider
+from app.services.llm import LLMProvider
 from app.services.pdf_extraction import (
     InvalidPdfError,
     extract_pages,
@@ -26,6 +27,7 @@ from app.services.pdf_extraction import (
     validate_pdf,
 )
 from app.services.storage import LocalFileStorage
+from app.services.summaries import summarize_document
 
 logger = logging.getLogger(__name__)
 
@@ -94,10 +96,12 @@ def process_document(
     session: Session,
     storage: LocalFileStorage,
     embedder: EmbeddingProvider,
+    llm: LLMProvider | None,
     settings: Settings,
     document_id: UUID,
 ) -> Document:
-    """Extrae, fragmenta, genera embeddings y guarda. Deja el documento `completed` o `failed`.
+    """Extrae, fragmenta, genera embeddings y un resumen, y guarda. Deja el documento
+    `completed` o `failed`.
 
     Los fragmentos y el estado `completed` se confirman en una sola transacción: si algo
     falla, no quedan fragmentos parciales de un documento que no está completo.
@@ -124,6 +128,12 @@ def process_document(
         started = time.perf_counter()
         embeddings = embedder.embed_documents([chunk.text for chunk in chunks])
         embedding_ms = (time.perf_counter() - started) * 1000
+        # El resumen es opcional: si falla, devuelve None y el documento se completa igual.
+        # Si ya tenía uno (reprocesado), se conserva: describe el mismo archivo.
+        summary = summarize_document(llm, settings, document.original_filename, chunks)
+        if summary is not None and llm is not None:
+            document.summary = summary
+            document.summary_model = llm.model_name
         repository.replace_chunks(document.id, chunks, embeddings, embedder.model_name)
         document.status = DocumentStatus.COMPLETED
         document.error_code = None
@@ -131,11 +141,12 @@ def process_document(
         document.processed_at = datetime.now(UTC)
         session.commit()
         logger.info(
-            "Documento %s procesado: %d fragmentos, embeddings %s en %.0f ms",
+            "Documento %s procesado: %d fragmentos, embeddings %s en %.0f ms, resumen=%s",
             document.id,
             len(chunks),
             embedder.model_name,
             embedding_ms,
+            summary is not None,
         )
     except Exception as exc:
         session.rollback()

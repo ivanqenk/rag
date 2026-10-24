@@ -1,5 +1,6 @@
 """Esquemas de la consulta RAG (pregunta -> respuesta con fuentes)."""
 
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -15,9 +16,12 @@ class SourceItem(BaseModel):
     document_id: UUID
     filename: str
     page_number: int | None
-    chunk_id: UUID
+    source_type: Literal["chunk", "summary"] = Field(
+        description="'chunk': un fragmento del documento; 'summary': el resumen del documento"
+    )
+    chunk_id: UUID | None = Field(description="None cuando la fuente es el resumen")
     excerpt: str = Field(description="Fragmento breve que respalda la respuesta")
-    score: float
+    score: float | None = Field(description="Relevancia de la búsqueda; None en resúmenes")
 
 
 class QueryResponse(BaseModel):

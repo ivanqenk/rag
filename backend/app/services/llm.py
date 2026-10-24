@@ -7,7 +7,7 @@ pasar es una respuesta incorrecta, nunca una acción no autorizada.
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Annotated, Protocol
+from typing import Annotated, Protocol, TypeVar
 
 import openai
 from fastapi import Depends, HTTPException, status
@@ -15,7 +15,13 @@ from pydantic import BaseModel, Field
 
 from app.core.config import Settings, get_settings
 from app.services.openai_errors import is_quota_exhausted
-from app.services.prompts import SYSTEM_PROMPT, ContextChunk, build_user_message
+from app.services.prompts import (
+    SUMMARY_SYSTEM_PROMPT,
+    SYSTEM_PROMPT,
+    ContextChunk,
+    build_summary_message,
+    build_user_message,
+)
 
 
 class LLMAnswer(BaseModel):
@@ -28,11 +34,25 @@ class LLMAnswer(BaseModel):
     )
 
 
+class LLMSummary(BaseModel):
+    summary: str = Field(description="Resumen del documento en texto plano")
+
+
 @dataclass(frozen=True)
 class LLMResult:
     answer: LLMAnswer
     input_tokens: int
     output_tokens: int
+
+
+@dataclass(frozen=True)
+class SummaryResult:
+    summary: str
+    input_tokens: int
+    output_tokens: int
+
+
+_Parsed = TypeVar("_Parsed", bound=BaseModel)
 
 
 class LLMError(Exception):
@@ -47,6 +67,8 @@ class LLMProvider(Protocol):
     model_name: str
 
     def generate_answer(self, question: str, context: Sequence[ContextChunk]) -> LLMResult: ...
+
+    def generate_summary(self, filename: str, chunks: Sequence[ContextChunk]) -> SummaryResult: ...
 
 
 class OpenAILLMProvider:
@@ -68,12 +90,29 @@ class OpenAILLMProvider:
         )
 
     def generate_answer(self, question: str, context: Sequence[ContextChunk]) -> LLMResult:
+        parsed, input_tokens, output_tokens = self._parse(
+            SYSTEM_PROMPT, build_user_message(question, context), LLMAnswer
+        )
+        return LLMResult(answer=parsed, input_tokens=input_tokens, output_tokens=output_tokens)
+
+    def generate_summary(self, filename: str, chunks: Sequence[ContextChunk]) -> SummaryResult:
+        parsed, input_tokens, output_tokens = self._parse(
+            SUMMARY_SYSTEM_PROMPT, build_summary_message(filename, chunks), LLMSummary
+        )
+        return SummaryResult(
+            summary=parsed.summary, input_tokens=input_tokens, output_tokens=output_tokens
+        )
+
+    def _parse(
+        self, instructions: str, user_input: str, schema: type[_Parsed]
+    ) -> tuple[_Parsed, int, int]:
+        """Llama al modelo con salida estructurada y traduce los errores a LLMError."""
         try:
             response = self._client.responses.parse(
                 model=self.model_name,
-                instructions=SYSTEM_PROMPT,
-                input=build_user_message(question, context),
-                text_format=LLMAnswer,
+                instructions=instructions,
+                input=user_input,
+                text_format=schema,
                 reasoning={"effort": self._reasoning_effort},
                 max_output_tokens=self._max_output_tokens,
                 # Privacidad: no guardar la conversación en OpenAI (no la necesitamos después).
@@ -92,10 +131,10 @@ class OpenAILLMProvider:
         if response.output_parsed is None:
             raise LLMError("No se pudo generar una respuesta. Inténtalo de nuevo.")
         usage = response.usage
-        return LLMResult(
-            answer=response.output_parsed,
-            input_tokens=usage.input_tokens if usage else 0,
-            output_tokens=usage.output_tokens if usage else 0,
+        return (
+            response.output_parsed,
+            usage.input_tokens if usage else 0,
+            usage.output_tokens if usage else 0,
         )
 
 
@@ -104,7 +143,8 @@ class FakeLLMProvider:
 
     Por defecto "responde" con el inicio de la primera fuente y la cita. Con `scripted`
     devuelve siempre esa respuesta, para simular comportamientos concretos del modelo
-    (citas inventadas, abstención…). Guarda las llamadas para poder inspeccionarlas.
+    (citas inventadas, abstención…). El "resumen" es el nombre del archivo y el inicio
+    del primer fragmento. Guarda las llamadas para poder inspeccionarlas.
     """
 
     model_name = "fake-llm-v1"
@@ -112,6 +152,7 @@ class FakeLLMProvider:
     def __init__(self, scripted: LLMAnswer | None = None) -> None:
         self._scripted = scripted
         self.calls: list[tuple[str, list[ContextChunk]]] = []
+        self.summary_calls: list[tuple[str, list[ContextChunk]]] = []
 
     def generate_answer(self, question: str, context: Sequence[ContextChunk]) -> LLMResult:
         self.calls.append((question, list(context)))
@@ -129,6 +170,15 @@ class FakeLLMProvider:
                 insufficient_evidence=False,
             )
         return LLMResult(answer=answer, input_tokens=0, output_tokens=0)
+
+    def generate_summary(self, filename: str, chunks: Sequence[ContextChunk]) -> SummaryResult:
+        self.summary_calls.append((filename, list(chunks)))
+        first_text = chunks[0].text[:300] if chunks else ""
+        return SummaryResult(
+            summary=f"Resumen simulado de {filename}: {first_text}",
+            input_tokens=0,
+            output_tokens=0,
+        )
 
 
 def build_llm_provider(settings: Settings) -> LLMProvider:
@@ -152,3 +202,16 @@ def get_llm_provider(settings: Annotated[Settings, Depends(get_settings)]) -> LL
         return build_llm_provider(settings)
     except LLMError as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, exc.message) from None
+
+
+def get_optional_llm_provider(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> LLMProvider | None:
+    """Como get_llm_provider, pero sin LLM configurado devuelve None en vez de un 503.
+
+    Se usa al subir documentos: el resumen es opcional y no debe impedir la subida.
+    """
+    try:
+        return build_llm_provider(settings)
+    except LLMError:
+        return None

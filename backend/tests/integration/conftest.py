@@ -20,7 +20,7 @@ from app.core.config import Settings, get_settings
 from app.db.session import get_db
 from app.main import app
 from app.services.embeddings import FakeEmbeddingProvider, get_embedding_provider
-from app.services.llm import FakeLLMProvider, get_llm_provider
+from app.services.llm import FakeLLMProvider, get_llm_provider, get_optional_llm_provider
 
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
@@ -108,5 +108,6 @@ def client(
     # Nunca llamar a un proveedor real (de pago) desde la suite, aunque .env tenga una clave.
     app.dependency_overrides[get_embedding_provider] = lambda: embedder
     app.dependency_overrides[get_llm_provider] = lambda: llm
+    app.dependency_overrides[get_optional_llm_provider] = lambda: llm
     yield TestClient(app)
     app.dependency_overrides.clear()

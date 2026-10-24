@@ -105,9 +105,13 @@ function Answer({ response }: { response: QueryResponse }) {
       <h4>Fuentes</h4>
       <ol className="sources">
         {response.sources.map((source) => (
-          <li key={source.chunk_id}>
+          <li key={source.chunk_id ?? `summary-${source.document_id}`}>
             <a href={routes.document(source.document_id)}>{source.filename}</a>
-            {source.page_number !== null && <span>, página {source.page_number}</span>}
+            {source.source_type === 'summary' ? (
+              <span>, resumen del documento</span>
+            ) : (
+              source.page_number !== null && <span>, página {source.page_number}</span>
+            )}
             <blockquote>{source.excerpt}</blockquote>
           </li>
         ))}

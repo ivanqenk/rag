@@ -9,6 +9,7 @@ const SOURCE = {
   document_id: '11111111-1111-4111-8111-111111111111',
   filename: 'manual.pdf',
   page_number: 3,
+  source_type: 'chunk' as const,
   chunk_id: 'c1',
   excerpt: 'Cada empleado dispone de 22 días hábiles.',
   score: 0.03,
@@ -44,6 +45,31 @@ describe('AskPage', () => {
     expect(JSON.parse(fetchSpy.mock.calls[0][1]?.body as string)).toEqual({
       question: '¿Cuántos días de vacaciones?',
     })
+  })
+
+  it('identifica las fuentes que son el resumen de un documento', async () => {
+    mockFetch(
+      jsonResponse({
+        answer: 'Es un manual de recursos humanos.',
+        sources: [
+          {
+            ...SOURCE,
+            source_type: 'summary',
+            chunk_id: null,
+            page_number: null,
+            score: null,
+            excerpt: 'Manual de recursos humanos.',
+          },
+        ],
+        insufficient_evidence: false,
+      }),
+    )
+    render(<AskPage />)
+
+    await ask('¿De qué trata?')
+
+    expect(await screen.findByText(', resumen del documento')).toBeInTheDocument()
+    expect(screen.queryByText(/página/)).not.toBeInTheDocument()
   })
 
   it('explica cuando no hay evidencia suficiente', async () => {

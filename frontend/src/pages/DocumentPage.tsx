@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ApiError, getDocument } from '../api/client'
+import { ApiError, getDocument, reprocessDocument } from '../api/client'
 import { StatusBadge } from '../components/StatusBadge'
 import { formatBytes, formatDate } from '../format'
 import { routes } from '../router'
@@ -70,8 +70,69 @@ export function DocumentPage({ id }: { id: string }) {
               <code>{state.document.id}</code>
             </dd>
           </dl>
+          <Summary
+            document={state.document}
+            onUpdated={(document) => setState({ kind: 'ready', document })}
+          />
         </>
       )}
+    </section>
+  )
+}
+
+function Summary({
+  document,
+  onUpdated,
+}: {
+  document: DocumentRead
+  onUpdated: (document: DocumentRead) => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  if (document.status !== 'completed') return null
+
+  async function regenerate() {
+    setBusy(true)
+    setError(null)
+    try {
+      // Reprocesar vuelve a generar fragmentos, embeddings y resumen.
+      const updated = await reprocessDocument(document.id)
+      if (!updated.summary) setError('No se pudo generar el resumen. Inténtalo más tarde.')
+      onUpdated(updated)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'No se pudo generar el resumen.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section aria-labelledby="summary-title">
+      <h3 id="summary-title">Resumen</h3>
+      {document.summary ? (
+        <>
+          {/* Generado por un LLM: se muestra como texto, nunca como HTML (ver AskPage). */}
+          <p className="answer">{document.summary}</p>
+          <p className="hint">Generado automáticamente por IA: puede contener errores.</p>
+        </>
+      ) : (
+        <>
+          <p className="hint">
+            No hay resumen disponible: el proveedor de IA no estaba configurado o falló.
+          </p>
+          <button type="button" disabled={busy} onClick={() => void regenerate()}>
+            {busy ? 'Generando…' : 'Generar resumen'}
+          </button>
+        </>
+      )}
+      <div aria-live="polite">
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
     </section>
   )
 }

@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     # Contexto enviado al LLM: limita costo y evita diluir la respuesta con texto irrelevante.
     rag_max_context_chars: int = Field(default=8000, ge=500)
 
+    # Resumen automático de cada documento al procesarlo (para preguntas tipo "¿de qué
+    # trata?"). Si el documento es más largo, se envían fragmentos repartidos por todo él.
+    summary_max_input_chars: int = Field(default=12000, ge=1000)
+    summary_max_chars: int = Field(default=1500, ge=200)
+
     @model_validator(mode="after")
     def _overlap_smaller_than_chunk(self) -> "Settings":
         if self.chunk_overlap >= self.chunk_size:

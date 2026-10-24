@@ -13,6 +13,8 @@ export interface DocumentRead {
   created_at: string
   updated_at: string
   processed_at: string | null
+  // Resumen generado por un LLM (null si no se pudo generar): mostrar como texto.
+  summary: string | null
 }
 
 export interface DocumentPage {
@@ -26,9 +28,11 @@ export interface Source {
   document_id: string
   filename: string
   page_number: number | null
-  chunk_id: string
+  // 'summary': la fuente es el resumen del documento (sin fragmento, página ni score).
+  source_type: 'chunk' | 'summary'
+  chunk_id: string | null
   excerpt: string
-  score: number
+  score: number | null
 }
 
 export interface QueryResponse {
