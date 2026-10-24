@@ -50,9 +50,22 @@ export interface Source {
   score: number | null
 }
 
-export interface QueryResponse {
+// brief: una o dos frases; detailed: resumen y puntos; steps: pasos en orden.
+export type AnswerStyle = 'brief' | 'detailed' | 'steps'
+
+export interface AnswerPoint {
   // Texto generado por un LLM: mostrar siempre como texto, nunca como HTML.
+  text: string
+  // Posiciones (desde 0) en QueryResponse.sources de las fuentes que lo respaldan.
+  sources: number[]
+}
+
+export interface QueryResponse {
+  // Texto generado por un LLM: mostrar siempre como texto, nunca como HTML. Puede estar vacío
+  // en respuestas detalladas si el resumen no superó la verificación (quedan los puntos).
   answer: string
   sources: Source[]
   insufficient_evidence: boolean
+  answer_style: AnswerStyle
+  points: AnswerPoint[]
 }

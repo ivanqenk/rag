@@ -1,6 +1,13 @@
 // Cliente HTTP tipado. Es el único lugar que conoce las URLs y el formato de errores de la API.
 
-import type { DocumentPage, DocumentRead, Folder, QueryResponse, TrashPage } from '../types/api'
+import type {
+  AnswerStyle,
+  DocumentPage,
+  DocumentRead,
+  Folder,
+  QueryResponse,
+  TrashPage,
+} from '../types/api'
 
 /** Error con un mensaje apto para mostrar al usuario (nunca trazas ni detalles internos). */
 export class ApiError extends Error {
@@ -143,12 +150,17 @@ export function reprocessDocument(id: string): Promise<DocumentRead> {
 /** Limita la pregunta a una carpeta, o a un documento y opcionalmente una de sus páginas. */
 export type QueryScope = { folderId: string } | { documentId: string; pageNumber?: number }
 
-export function askQuestion(question: string, scope?: QueryScope): Promise<QueryResponse> {
+export function askQuestion(
+  question: string,
+  scope?: QueryScope,
+  style: AnswerStyle = 'brief',
+): Promise<QueryResponse> {
   return request<QueryResponse>('/api/v1/query', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       question,
+      answer_style: style,
       folder_id: scope && 'folderId' in scope ? scope.folderId : undefined,
       document_id: scope && 'documentId' in scope ? scope.documentId : undefined,
       page_number: scope && 'documentId' in scope ? scope.pageNumber : undefined,

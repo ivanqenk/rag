@@ -77,3 +77,50 @@ def test_summarizes_a_document_without_inventing(llm: LLMProvider) -> None:
     print(f"\n{result.summary} | tokens {result.input_tokens}/{result.output_tokens}")
     assert result.summary.strip()
     assert "vacaciones" in result.summary.lower()
+
+
+PASSWORDS = ContextChunk(
+    "S1",
+    "seguridad_it.pdf",
+    1,
+    "Contraseñas y acceso. Las contraseñas deben tener al menos 14 caracteres y cambiarse cada "
+    "180 días o inmediatamente si se sospecha que han sido comprometidas.",
+)
+INFECTED = ContextChunk(
+    "S2",
+    "seguridad_it.pdf",
+    2,
+    "Si sospechas que tu equipo está infectado, no lo apagues: desconéctalo de la red (cable y "
+    "wifi) y espera instrucciones.",
+)
+
+
+def test_detailed_answer_has_points_with_their_own_sources(llm: LLMProvider) -> None:
+    result = llm.generate_answer(
+        "¿Qué requisitos tienen las contraseñas?", [PASSWORDS, INFECTED], "detailed"
+    )
+    print(result.answer)
+
+    assert result.answer.insufficient_evidence is False
+    assert result.answer.points
+    for point in result.answer.points:
+        assert point.cited_sources == ["S1"]
+    text = " ".join(p.text for p in result.answer.points).lower()
+    assert "14" in text and "180" in text
+    for invented in ("mayúscul", "símbolo", "especial"):
+        assert invented not in text
+
+
+def test_verifier_accepts_paraphrases_and_rejects_additions(llm: LLMProvider) -> None:
+    claims = [
+        ("A0", "Una clave de acceso debe tener al menos 14 caracteres.", [PASSWORDS]),
+        ("A1", "Los requisitos de las contraseñas son los siguientes:", [PASSWORDS]),
+        ("A2", "Las contraseñas deben incluir mayúsculas y símbolos.", [PASSWORDS]),
+        ("A3", "Las contraseñas deben tener al menos 12 caracteres.", [PASSWORDS]),
+        ("A4", "Desconecta el equipo de la red y pásale un antivirus.", [INFECTED]),
+    ]
+
+    result = llm.verify("¿Qué longitud mínima debe tener una clave de acceso?", claims)
+    print(result.supported)
+
+    assert result.supported == {"A0": True, "A1": True, "A2": False, "A3": False, "A4": False}

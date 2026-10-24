@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     # Elegir fragmentos es más sencillo que redactar la respuesta: menos razonamiento = menos
     # latencia (ver la comparativa en docs/rag-evaluation.md).
     rag_rerank_reasoning_effort: Literal["none", "low", "medium", "high"] = "none"
+    # Respuestas detalladas y por pasos: una segunda llamada comprueba cada afirmación contra
+    # el texto de sus fuentes y elimina las que no estén respaldadas (ver services/rag.py).
+    rag_verify_answers: bool = True
 
     # Resumen automático de cada documento al procesarlo (para preguntas tipo "¿de qué
     # trata?"). Si el documento es más largo, se envían fragmentos repartidos por todo él.

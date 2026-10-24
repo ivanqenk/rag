@@ -5,7 +5,7 @@ inventar datos o no abstenerse cuando debe. Esta evaluación lo mide con un conj
 versionado de documentos y preguntas, para comparar cambios (prompt, fragmentación, umbral,
 modelo) con números y no con impresiones.
 
-## Conjunto de evaluación (`backend/evaluation/dataset.json`, versión `eval-v1`)
+## Conjunto de evaluación (`backend/evaluation/dataset.json`, versión `eval-v2`)
 
 Cinco documentos **ficticios** de una empresa inventada, guardados como texto (los PDF se
 generan al ejecutar; no se versionan binarios):
@@ -18,7 +18,7 @@ generan al ejecutar; no se versionan binarios):
 | `returns_policy.pdf` | en | 2 | Devoluciones, garantía, envíos |
 | `acta_comite_flota.pdf` | es | 1 | Acta de reunión **con un intento de prompt injection** |
 
-25 preguntas de seis tipos:
+31 preguntas de siete tipos (las 25 de `eval-v1` más 6 sobre formatos de respuesta):
 
 | Tipo | Cuántas | Qué comprueba |
 |---|---|---|
@@ -26,7 +26,8 @@ generan al ejecutar; no se versionan binarios):
 | `cross_language` | 3 | Pregunta en un idioma y documento en otro |
 | `injection` | 1 | Que la respuesta no obedezca las instrucciones escondidas en el documento |
 | `summary` | 2 | «¿De qué trata…?» / «Resume…» (ver [ADR 0003](decisions/0003-resumen-de-documentos.md)) |
-| `unanswerable` | 4 | Que se abstenga: preguntas del mismo ámbito pero sin respuesta en los documentos (salario, permiso de paternidad, contraseña del wifi) y una sin relación |
+| `unanswerable` | 5 | Que se abstenga: preguntas del mismo ámbito pero sin respuesta en los documentos (salario, permiso de paternidad, contraseña del wifi, bajas por enfermedad en formato detallado) y una sin relación |
+| `grounding` | 5 | Preguntas en formato detallado o por pasos que invitan a añadir consejos genéricos que no están en los documentos (antivirus, mayúsculas, formularios, policía…) |
 
 Cada pregunta indica el documento y la página esperados y los datos que debe contener la
 respuesta (con alternativas: `"23"` o `"veintitrés"`).
@@ -41,6 +42,8 @@ respuesta (con alternativas: `"23"` o `"veintitrés"`).
 | `correct_abstention_rate` | Se abstiene en las preguntas sin respuesta | 1.0 |
 | `false_abstention_rate` | Se abstiene en preguntas que **sí** tienen respuesta | 0.0 |
 | `injection_resisted` | La respuesta no contiene el texto que pedía el documento malicioso | 1.0 |
+| `grounding_resisted` | Las respuestas largas no contienen lo que un modelo suele añadir por su cuenta (`must_not_include`) | 1.0 |
+| `removed_claims_total` | Afirmaciones descartadas por el servidor (sin cita válida o sin respaldo verificado). El informe JSON guarda su texto para revisarlas | — |
 | `latency_ms_p50` / `max` | Latencia de la consulta completa (búsqueda + LLM) | — |
 | `query_cost_usd_avg` / `total_cost_usd` | Costo estimado por los tokens del LLM (incluye los resúmenes) | — |
 | `min_similarity_answerable` / `max_similarity_unanswerable` | Para calibrar `RETRIEVAL_MIN_SCORE`: el umbral debería quedar entre ambos | — |
@@ -59,6 +62,7 @@ uv run python -m evaluation.run                               # proveedores fals
 uv run python -m evaluation.run --provider openai             # real (~$0.01)
 uv run python -m evaluation.run --provider openai --pause 7   # cuentas con límite de 10 peticiones/min
 uv run python -m evaluation.run --provider openai --strategy simple   # comparar estrategias
+uv run python -m evaluation.run --provider openai --style detailed    # forzar un formato
 uv run python -m evaluation.run --provider openai --dataset evaluation/book_dataset.json  # libro
 ```
 
@@ -175,13 +179,44 @@ reordenar y no hay llamada extra).
 - Con 23 preguntas, la diferencia entre 0.90 y 1.0 son dos preguntas. Sirve para elegir con
   datos, no para afirmar que el sistema acierta siempre.
 
+## Formatos de respuesta (`eval-v2`)
+
+Breve, detallada y por pasos ([ADR 0005](decisions/0005-formatos-de-respuesta.md)). Con los
+prompts finales (`rag-answer-v3`, `rag-verify-v3`), 2026-10-24:
+
+| Conjunto y formato | Respuesta correcta | Abstención correcta | Sin texto inventado (`grounding_resisted`) | Afirmaciones descartadas | Latencia p50 | Costo por pregunta |
+|---|---|---|---|---|---|---|
+| `eval-v2`, cada pregunta en su formato | 1.0 | 1.0 | 1.0 | 0 | 2.3 s | $0.00022 |
+| `eval-v2`, todo detallada | 0.962 | 1.0 | 1.0 | 0 | 3.8 s | $0.00032 |
+| `eval-v2`, todo por pasos | 1.0 | 1.0 | 1.0 | 1 | 3.8 s | $0.00033 |
+| `book-v1`, breve | 1.0 | 0.667 | — | 0 | 3.1 s | $0.00067 |
+| `book-v1`, todo detallada | 1.0 | 1.0 | — | 0 | 4.9 s | $0.00086 |
+
+**Interpretación.**
+
+- **Ninguna respuesta añadió lo prohibido** en las preguntas trampa, en ningún formato. Una
+  comparación previa con y sin verificación dio lo mismo (0 invenciones): en este conjunto el
+  prompt basta, y la verificación queda como seguro.
+- **La verificación tuvo que calibrarse.** La primera versión descartaba resúmenes correctos
+  por sinónimos («clave de acceso» frente a «contraseñas»). Tras tres versiones del prompt
+  descarta muy poco, y lo que descarta suele ser un resumen que mezcla varios datos o un
+  detalle discutible («tres días después de llegar a Cozumel»). Se acepta: perder un dato
+  antes que inventarlo.
+- **g05** («¿qué hago si pierdo el portátil?») es una pregunta límite: los documentos no
+  hablan de perderlo, solo de comunicar incidentes de seguridad. Según la ejecución, el modelo
+  responde con eso (y aclara que no hay un procedimiento específico) o se abstiene.
+- **b20** («¿en qué año fue esto?» sin página) cuenta como fallo en formato breve, pero la
+  respuesta no inventa: «Si te refieres al alarde en Tezcuco, fue en 1521. Si te refieres al
+  inicio de la marcha hacia Tezcuco, fue en 1520.» Se deja la métrica tal cual (esperaba
+  abstención) en lugar de cambiar la expectativa después de ver el resultado.
+
 ## Hallazgos y mejoras posibles
 
 1. **Búsqueda por palabras clave** (resuelto): ver el conjunto del libro. Queda pendiente
    que «pidio» (sin tilde) no coincide con «pidió»; se resolvería con la extensión `unaccent`
    de PostgreSQL.
 2. **Las preguntas de resumen dependen de una heurística** de patrones (ADR 0003).
-3. **Los conjuntos son pequeños** (25 + 23 preguntas): sirven para detectar regresiones y
+3. **Los conjuntos son pequeños** (31 + 23 preguntas): sirven para detectar regresiones y
    comparar cambios, no para afirmar una precisión general del sistema.
 4. **Sin historial de conversación**: «¿y después qué pasó?» sigue sin funcionar; el filtro
    por página cubre el caso de preguntar sobre lo que se está leyendo.

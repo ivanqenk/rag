@@ -9,12 +9,19 @@ resúmenes generados al procesar cada documento (ver services/summaries.py).
 
 Qué fragmentos lee el LLM depende de RAG_STRATEGY (simple, rerank o progressive; ver
 core/config.py). La pregunta puede limitarse a una carpeta, a un documento o a una página.
+
+Formatos de respuesta: breve (una o dos frases), detallada (resumen + puntos) y por pasos.
+Para que una respuesta larga no añada nada que no esté en los documentos:
+1. El prompt lo prohíbe y pide que cada punto cite sus fuentes.
+2. El servidor descarta los puntos sin ninguna cita válida.
+3. En detallada y pasos, una segunda llamada (RAG_VERIFY_ANSWERS) comprueba cada afirmación
+   contra el texto de SUS fuentes y descarta las que no estén respaldadas.
 """
 
 import logging
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal
 from uuid import UUID
 
@@ -25,7 +32,12 @@ from app.repositories.documents import DocumentRepository
 from app.services import retrieval
 from app.services.embeddings import EmbeddingProvider
 from app.services.llm import LLMError, LLMProvider
-from app.services.prompts import PROMPT_VERSION, RERANK_PROMPT_VERSION, ContextChunk
+from app.services.prompts import (
+    PROMPT_VERSION,
+    RERANK_PROMPT_VERSION,
+    VERIFY_PROMPT_VERSION,
+    ContextChunk,
+)
 from app.services.summaries import is_summary_question
 
 logger = logging.getLogger(__name__)
@@ -51,10 +63,21 @@ class Source:
 
 
 @dataclass(frozen=True)
+class AnswerPoint:
+    text: str
+    # Posiciones (desde 0) en RagAnswer.sources de las fuentes que respaldan el punto.
+    source_indexes: list[int]
+
+
+@dataclass(frozen=True)
 class RagAnswer:
     answer: str
     sources: list[Source]
     insufficient_evidence: bool
+    points: list[AnswerPoint] = field(default_factory=list)
+    # Afirmaciones descartadas por no tener cita válida o no superar la verificación. Solo
+    # para logs y evaluación (cuántas) y para revisar la verificación (cuáles); no sale por la API.
+    removed_claims: list[str] = field(default_factory=list)
     # (documento, página) de todo lo que leyó el LLM. Solo para la evaluación; no sale por
     # la API.
     considered: list[tuple[UUID, int | None]] = field(default_factory=list)
@@ -146,8 +169,10 @@ def answer_question(
     settings: Settings,
     question: str,
     scope: retrieval.Scope = retrieval.EVERYWHERE,
+    style: str = "brief",
 ) -> RagAnswer:
-    """Responde con los documentos, o solo con los de `scope` (carpeta, documento o página)."""
+    """Responde con los documentos, o solo con los de `scope` (carpeta, documento o página),
+    en el formato `style` (brief, detailed o steps)."""
     started = time.perf_counter()
     usage = _Usage()
     attempts: list[list[tuple[ContextChunk, Source]]] = []
@@ -174,12 +199,14 @@ def answer_question(
 
     answer = RagAnswer(answer=NO_EVIDENCE_ANSWER, sources=[], insufficient_evidence=True)
     considered: list[tuple[UUID, int | None]] = []
+    removed_claims: list[str] = []
     llm_started = time.perf_counter()
     # Sin evidencia no se llama al LLM: ahorra costo y evita respuestas inventadas. Con
     # "progressive" hay varios intentos; se para en el primero que tenga respuesta.
     for context in attempts:
         considered += [(source.document_id, source.page_number) for _, source in context]
-        candidate = _generate(llm, question, context, usage)
+        candidate = _generate(llm, settings, question, context, style, usage)
+        removed_claims += candidate.removed_claims
         if not candidate.insufficient_evidence:
             answer = candidate
             break
@@ -189,20 +216,17 @@ def answer_question(
         settings,
         llm,
         question,
+        style,
         retrieved,
         len(considered),
         len(answer.sources),
+        len(removed_claims),
         usage,
         retrieval_ms,
         llm_ms,
         answer.insufficient_evidence,
     )
-    return RagAnswer(
-        answer=answer.answer,
-        sources=answer.sources,
-        insufficient_evidence=answer.insufficient_evidence,
-        considered=considered,
-    )
+    return replace(answer, considered=considered, removed_claims=removed_claims)
 
 
 def _select_chunks(
@@ -259,35 +283,107 @@ def _rerank(
 
 
 def _generate(
-    llm: LLMProvider, question: str, context: list[tuple[ContextChunk, Source]], usage: _Usage
+    llm: LLMProvider,
+    settings: Settings,
+    question: str,
+    context: list[tuple[ContextChunk, Source]],
+    style: str,
+    usage: _Usage,
 ) -> RagAnswer:
-    """Una llamada al LLM con su verificación de citas."""
-    llm_result = llm.generate_answer(question, [chunk for chunk, _ in context])
+    """Una llamada al LLM, la verificación de citas y, si aplica, la de las afirmaciones."""
+    chunks = [chunk for chunk, _ in context]
+    llm_result = llm.generate_answer(question, chunks, style)
     usage.add(llm_result.input_tokens, llm_result.output_tokens)
+    no_evidence = RagAnswer(answer=NO_EVIDENCE_ANSWER, sources=[], insufficient_evidence=True)
+    if llm_result.answer.insufficient_evidence:
+        return no_evidence
 
-    by_ref = {chunk.ref: source for chunk, source in context}
-    # Verificación de citas: solo ids que existen en el contexto enviado, sin duplicados.
-    valid_refs = list(dict.fromkeys(r for r in llm_result.answer.cited_sources if r in by_ref))
-    invented = len(set(llm_result.answer.cited_sources) - set(by_ref))
+    by_ref = {chunk.ref: (chunk, source) for chunk, source in context}
+    invented = 0
+
+    def valid(refs: list[str]) -> list[str]:
+        # Verificación de citas: solo ids que existen en el contexto enviado, sin duplicados.
+        nonlocal invented
+        invented += len(set(refs) - set(by_ref))
+        return [ref for ref in dict.fromkeys(refs) if ref in by_ref]
+
+    summary = llm_result.answer.answer.strip()
+    summary_refs = valid(llm_result.answer.cited_sources)
+    candidates = [] if style == "brief" else llm_result.answer.points
+    points = [(p.text.strip(), valid(p.cited_sources)) for p in candidates if p.text.strip()]
     if invented:
         logger.warning("El LLM citó %d fuentes inexistentes; se descartan", invented)
+    # Un punto sin ninguna cita válida no está respaldado: se descarta.
+    removed = [text for text, refs in points if not refs]
+    points = [(text, refs) for text, refs in points if refs]
+    if not summary_refs:
+        summary = ""
 
-    if llm_result.answer.insufficient_evidence or not valid_refs:
-        return RagAnswer(answer=NO_EVIDENCE_ANSWER, sources=[], insufficient_evidence=True)
-    return RagAnswer(
-        answer=llm_result.answer.answer,
-        sources=[by_ref[ref] for ref in valid_refs],
-        insufficient_evidence=False,
+    if style != "brief" and settings.rag_verify_answers:
+        summary, points, dropped = _verify(
+            llm, question, summary, summary_refs, points, by_ref, usage
+        )
+        removed += dropped
+
+    if not summary and not points:
+        return replace(no_evidence, removed_claims=removed)
+
+    # Fuentes devueltas: las del resumen y las de los puntos, sin repetir, en orden de aparición.
+    ordered = list(
+        dict.fromkeys([*(summary_refs if summary else []), *(r for _, rs in points for r in rs)])
     )
+    position = {ref: i for i, ref in enumerate(ordered)}
+    return RagAnswer(
+        answer=summary,
+        sources=[by_ref[ref][1] for ref in ordered],
+        insufficient_evidence=False,
+        points=[AnswerPoint(text, [position[r] for r in refs]) for text, refs in points],
+        removed_claims=removed,
+    )
+
+
+def _verify(
+    llm: LLMProvider,
+    question: str,
+    summary: str,
+    summary_refs: list[str],
+    points: list[tuple[str, list[str]]],
+    by_ref: dict[str, tuple[ContextChunk, Source]],
+    usage: _Usage,
+) -> tuple[str, list[tuple[str, list[str]]], list[str]]:
+    """Comprueba cada afirmación contra el texto de las fuentes que cita (no contra todo el
+    contexto: si una cifra sale de otra fuente, la cita es incorrecta). Lo no respaldado, o
+    sin veredicto, se descarta."""
+    claims: list[tuple[str, str, list[ContextChunk]]] = []
+    if summary:
+        claims.append(("A0", summary, [by_ref[r][0] for r in summary_refs]))
+    for i, (text, refs) in enumerate(points, start=1):
+        claims.append((f"A{i}", text, [by_ref[r][0] for r in refs]))
+    if not claims:
+        return summary, points, []
+
+    verification = llm.verify(question, claims)
+    usage.add(verification.input_tokens, verification.output_tokens)
+    supported = verification.supported
+    kept_points = [p for i, p in enumerate(points, start=1) if supported.get(f"A{i}", False)]
+    kept_summary = summary if summary and supported.get("A0", False) else ""
+    dropped = [text for text, refs in points if (text, refs) not in kept_points]
+    if summary and not kept_summary:
+        dropped.insert(0, summary)
+    if dropped:
+        logger.info("Verificación: %d afirmaciones sin respaldo descartadas", len(dropped))
+    return kept_summary, kept_points, dropped
 
 
 def _log(
     settings: Settings,
     llm: LLMProvider,
     question: str,
+    style: str,
     retrieved: int,
     context_chunks: int,
     cited: int,
+    removed_claims: int,
     usage: _Usage,
     retrieval_ms: float,
     llm_ms: float,
@@ -299,18 +395,22 @@ def _log(
         + usage.output_tokens * settings.llm_output_price_per_mtok
     ) / 1_000_000
     logger.info(
-        "Consulta RAG: %d caracteres, %d recuperados, %d leídos por el LLM, %d citados, "
-        "sin_evidencia=%s, estrategia=%s, modelo=%s, prompts=%s/%s, llamadas=%d, "
-        "tokens=%d/%d, costo~$%.6f, recuperación %.0f ms, LLM %.0f ms",
+        "Consulta RAG: %d caracteres, formato=%s, %d recuperados, %d leídos por el LLM, "
+        "%d citados, %d afirmaciones descartadas, sin_evidencia=%s, estrategia=%s, modelo=%s, "
+        "prompts=%s/%s/%s, llamadas=%d, tokens=%d/%d, costo~$%.6f, recuperación %.0f ms, "
+        "LLM %.0f ms",
         len(question),
+        style,
         retrieved,
         context_chunks,
         cited,
+        removed_claims,
         insufficient,
         settings.rag_strategy,
         llm.model_name,
         PROMPT_VERSION,
         RERANK_PROMPT_VERSION,
+        VERIFY_PROMPT_VERSION,
         usage.calls,
         usage.input_tokens,
         usage.output_tokens,

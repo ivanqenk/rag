@@ -39,6 +39,8 @@ persona que despliega · 💼 solo necesario si el proyecto pasa a ser un SaaS m
 | Práctica | Estado | Dónde / por qué |
 |---|---|---|
 | Prompt con reglas: solo usar el contexto, citar, abstenerse si no hay evidencia | ✅ | `services/prompts.py` |
+| Citas por afirmación y verificación de cada una contra su fuente | ✅ | Formatos detallado y por pasos: puntos sin cita válida descartados y segunda llamada que comprueba cada afirmación ([ADR 0005](decisions/0005-formatos-de-respuesta.md)) |
+| Salida estructurada en lugar de Markdown | ✅ | Los puntos llegan como datos y se dibujan como texto: sin HTML ni enlaces inyectados |
 | Documentos delimitados como datos (`<fuente id=…>`, texto escapado), nunca como instrucciones | ✅ | `build_user_message`: un documento no puede cerrar su etiqueta ni fingir otra fuente |
 | Verificar que los IDs citados por el LLM estaban entre los recuperados; las fuentes mostradas salen de la BD | ✅ | `services/rag.py`. Sin ninguna cita válida, la respuesta se trata como no respaldada |
 | Respuesta estructurada (JSON: `answer`, `cited_sources`, `insufficient_evidence`) | ✅ | Structured Outputs de OpenAI con el esquema `LLMAnswer` |

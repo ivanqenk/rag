@@ -2,7 +2,13 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { ApiError, askQuestion, documentFileUrl, getDocument, listFolders } from '../api/client'
 import { Icon } from '../components/Icon'
 import { routes } from '../router'
-import type { Folder, QueryResponse } from '../types/api'
+import type { AnswerStyle, Folder, QueryResponse } from '../types/api'
+
+const STYLES: Array<{ value: AnswerStyle; label: string; hint: string }> = [
+  { value: 'brief', label: 'Breve', hint: 'Una o dos frases' },
+  { value: 'detailed', label: 'Detallada', hint: 'Resumen y puntos clave' },
+  { value: 'steps', label: 'Pasos', hint: 'Lista ordenada de pasos' },
+]
 
 // Debe coincidir con MAX_QUERY_CHARS del backend.
 const MAX_QUESTION_CHARS = 1000
@@ -26,6 +32,7 @@ type ScopeState =
 export function AskPage({ documentId, folderId }: { documentId?: string; folderId?: string }) {
   const [question, setQuestion] = useState('')
   const [page, setPage] = useState('')
+  const [style, setStyle] = useState<AnswerStyle>('brief')
   const [state, setState] = useState<AskState>({ kind: 'idle' })
   const [scope, setScope] = useState<ScopeState>({ kind: 'loading' })
   const [folders, setFolders] = useState<Folder[] | null>(null)
@@ -82,6 +89,7 @@ export function AskPage({ documentId, folderId }: { documentId?: string; folderI
           : selectedFolder
             ? { folderId: selectedFolder }
             : undefined,
+        style,
       )
       setState({ kind: 'answered', response })
     } catch (error) {
@@ -175,6 +183,21 @@ export function AskPage({ documentId, folderId }: { documentId?: string; folderI
               }
             }}
           />
+          <fieldset className="segmented">
+            <legend>Tipo de respuesta</legend>
+            {STYLES.map((option) => (
+              <label key={option.value} title={option.hint}>
+                <input
+                  type="radio"
+                  name="answer-style"
+                  value={option.value}
+                  checked={style === option.value}
+                  onChange={() => setStyle(option.value)}
+                />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </fieldset>
           <div className="form-footer">
             <span className="hint">
               {question.length}/{MAX_QUESTION_CHARS}
@@ -231,7 +254,15 @@ function Answer({ response }: { response: QueryResponse }) {
         dangerouslySetInnerHTML ni interpretando Markdown, que permitirían inyectar HTML,
         scripts o enlaces/imágenes que filtren datos a un servidor externo.
       */}
-      <p className="answer">{response.answer}</p>
+      {response.answer && <p className="answer">{response.answer}</p>}
+      {response.points.length > 0 && <Points response={response} />}
+      {response.answer_style !== 'brief' && (
+        <p className="hint verified">
+          <Icon name="search" size={14} />
+          Cada punto se ha comprobado contra el texto de sus fuentes; lo que no estaba respaldado
+          se ha descartado.
+        </p>
+      )}
 
       <h4 className="sources-title">Fuentes</h4>
       <ol className="sources">
@@ -261,5 +292,41 @@ function Answer({ response }: { response: QueryResponse }) {
         ))}
       </ol>
     </section>
+  )
+}
+
+/** Puntos o pasos, cada uno con enlaces a sus fuentes (el número coincide con «Fuentes»). */
+function Points({ response }: { response: QueryResponse }) {
+  const List = response.answer_style === 'steps' ? 'ol' : 'ul'
+  return (
+    <List className={`points points-${response.answer_style}`}>
+      {response.points.map((point, index) => (
+        <li key={index}>
+          <span>{point.text}</span>{' '}
+          {point.sources.map((sourceIndex) => {
+            const source = response.sources[sourceIndex]
+            if (!source) return null
+            const where = source.page_number ? `, página ${source.page_number}` : ''
+            return (
+              <a
+                key={sourceIndex}
+                className="cite"
+                href={
+                  source.page_number
+                    ? documentFileUrl(source.document_id, source.page_number)
+                    : routes.document(source.document_id)
+                }
+                target={source.page_number ? '_blank' : undefined}
+                rel={source.page_number ? 'noopener noreferrer' : undefined}
+                aria-label={`Fuente ${sourceIndex + 1}: ${source.filename}${where}`}
+                title={`${source.filename}${where}`}
+              >
+                {sourceIndex + 1}
+              </a>
+            )
+          })}
+        </li>
+      ))}
+    </List>
   )
 }

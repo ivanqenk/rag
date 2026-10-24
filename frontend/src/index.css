@@ -295,10 +295,33 @@ a.button-link.secondary:hover { background: var(--surface-2); color: var(--text)
 .scope select { width: auto; max-width: 100%; padding: 0.4rem 0.6rem; }
 .scope input[type='number'] { width: 6.5rem; padding: 0.4rem 0.6rem; }
 
+/* Selector de tipo de respuesta: radios nativos (accesibles con teclado) con aspecto de pestañas. */
+.segmented {
+  display: inline-flex; flex-wrap: wrap; gap: 0.2rem; margin: 0.9rem 0 0; padding: 0.2rem;
+  border: 1px solid var(--border); border-radius: 11px; background: var(--surface-2);
+}
+.segmented legend { float: left; width: 100%; margin: 0 0 0.35rem; padding: 0 0.3rem; font-weight: 600; font-size: 0.93rem; }
+.segmented label { margin: 0; font-weight: 550; font-size: 0.9rem; cursor: pointer; }
+.segmented input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.segmented span { display: block; padding: 0.35rem 0.85rem; border-radius: 8px; color: var(--muted); }
+.segmented input:checked + span { background: var(--surface); color: var(--accent); box-shadow: var(--shadow); }
+.segmented input:focus-visible + span { outline: 3px solid var(--focus); outline-offset: 1px; }
+
 /* La respuesta del LLM se muestra como texto; pre-wrap conserva sus saltos de línea. */
 .answer { white-space: pre-wrap; font-size: 1.05rem; margin: 0; }
 .answer-card { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
 .answer-card h3 { margin-top: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--accent); }
+.points { margin: 0.9rem 0 0; padding-left: 1.4rem; display: grid; gap: 0.5rem; }
+.points li { padding-left: 0.2rem; }
+.points-steps li::marker { color: var(--accent); font-weight: 700; }
+.points-detailed li::marker { color: var(--accent); }
+.cite {
+  display: inline-grid; place-items: center; min-width: 1.25rem; height: 1.25rem; padding: 0 0.3rem;
+  margin-left: 0.15rem; border-radius: 999px; font-size: 0.72rem; font-weight: 700;
+  background: var(--accent-soft); color: var(--accent); text-decoration: none; vertical-align: 0.1em;
+}
+.cite:hover { background: var(--accent); color: var(--accent-text); }
+.verified { display: flex; align-items: center; gap: 0.4rem; margin: 0.9rem 0 0; }
 .card h4.sources-title { margin: 1.5rem 0 0.6rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
 .sources { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.6rem; counter-reset: source; }
 .sources li {

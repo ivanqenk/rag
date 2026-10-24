@@ -19,21 +19,55 @@ from app.services.prompts import (
     RERANK_SYSTEM_PROMPT,
     SUMMARY_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
+    VERIFY_SYSTEM_PROMPT,
     ContextChunk,
     build_rerank_message,
     build_summary_message,
     build_user_message,
+    build_verify_message,
 )
 
 
+class LLMPoint(BaseModel):
+    """Una afirmación de una respuesta detallada o por pasos, con sus propias fuentes."""
+
+    text: str = Field(description="Una sola afirmación concreta, sacada de las fuentes")
+    cited_sources: list[str] = Field(description="Ids de las fuentes que la respaldan")
+
+
 class LLMAnswer(BaseModel):
-    """Esquema que el LLM está obligado a rellenar (Structured Outputs)."""
+    """Esquema que el LLM está obligado a rellenar (Structured Outputs).
+
+    Datos estructurados en lugar de Markdown: el frontend los dibuja como texto (sin riesgo de
+    HTML o enlaces inyectados) y cada punto se puede verificar por separado.
+    """
 
     answer: str = Field(description="Respuesta a la pregunta basada solo en las fuentes")
     cited_sources: list[str] = Field(description="Ids de las fuentes que respaldan la respuesta")
+    # default_factory no aparece en el esquema: para OpenAI el campo sigue siendo obligatorio.
+    points: list[LLMPoint] = Field(
+        default_factory=list, description="Puntos o pasos (vacío en respuestas breves)"
+    )
     insufficient_evidence: bool = Field(
         description="true si las fuentes no permiten responder la pregunta"
     )
+
+
+class LLMVerdict(BaseModel):
+    id: str
+    supported: bool = Field(description="true solo si sus fragmentos respaldan toda la afirmación")
+
+
+class LLMVerification(BaseModel):
+    verdicts: list[LLMVerdict]
+
+
+@dataclass(frozen=True)
+class VerificationResult:
+    # id de la afirmación -> respaldada. Las que falten se tratan como no respaldadas.
+    supported: dict[str, bool]
+    input_tokens: int
+    output_tokens: int
 
 
 class LLMSummary(BaseModel):
@@ -81,7 +115,13 @@ class LLMError(Exception):
 class LLMProvider(Protocol):
     model_name: str
 
-    def generate_answer(self, question: str, context: Sequence[ContextChunk]) -> LLMResult: ...
+    def generate_answer(
+        self, question: str, context: Sequence[ContextChunk], style: str = "brief"
+    ) -> LLMResult: ...
+
+    def verify(
+        self, question: str, claims: Sequence[tuple[str, str, Sequence[ContextChunk]]]
+    ) -> VerificationResult: ...
 
     def generate_summary(self, filename: str, chunks: Sequence[ContextChunk]) -> SummaryResult: ...
 
@@ -110,11 +150,30 @@ class OpenAILLMProvider:
             api_key=api_key, timeout=timeout_seconds, max_retries=max_retries
         )
 
-    def generate_answer(self, question: str, context: Sequence[ContextChunk]) -> LLMResult:
+    def generate_answer(
+        self, question: str, context: Sequence[ContextChunk], style: str = "brief"
+    ) -> LLMResult:
         parsed, input_tokens, output_tokens = self._parse(
-            SYSTEM_PROMPT, build_user_message(question, context), LLMAnswer
+            SYSTEM_PROMPT, build_user_message(question, context, style), LLMAnswer
         )
         return LLMResult(answer=parsed, input_tokens=input_tokens, output_tokens=output_tokens)
+
+    def verify(
+        self, question: str, claims: Sequence[tuple[str, str, Sequence[ContextChunk]]]
+    ) -> VerificationResult:
+        # Comparar una afirmación con su texto no necesita razonamiento largo: mismo esfuerzo
+        # que el reordenamiento (rápido).
+        parsed, input_tokens, output_tokens = self._parse(
+            VERIFY_SYSTEM_PROMPT,
+            build_verify_message(question, claims),
+            LLMVerification,
+            reasoning_effort=self._rerank_reasoning_effort,
+        )
+        return VerificationResult(
+            supported={verdict.id: verdict.supported for verdict in parsed.verdicts},
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
 
     def generate_summary(self, filename: str, chunks: Sequence[ContextChunk]) -> SummaryResult:
         parsed, input_tokens, output_tokens = self._parse(
@@ -191,9 +250,15 @@ class FakeLLMProvider:
         self.calls: list[tuple[str, list[ContextChunk]]] = []
         self.summary_calls: list[tuple[str, list[ContextChunk]]] = []
         self.rerank_calls: list[tuple[str, list[ContextChunk], int]] = []
+        self.styles: list[str] = []
+        self.verify_calls: list[list[tuple[str, str, Sequence[ContextChunk]]]] = []
+        self.unsupported: set[str] = set()
 
-    def generate_answer(self, question: str, context: Sequence[ContextChunk]) -> LLMResult:
+    def generate_answer(
+        self, question: str, context: Sequence[ContextChunk], style: str = "brief"
+    ) -> LLMResult:
         self.calls.append((question, list(context)))
+        self.styles.append(style)
         if self._scripted is not None:
             answer = self._scripted
         elif not context:
@@ -202,12 +267,30 @@ class FakeLLMProvider:
             )
         else:
             first = context[0]
+            # Detallada / pasos: un punto por fuente (como mucho tres), citándola.
+            points = (
+                []
+                if style == "brief"
+                else [LLMPoint(text=c.text[:120], cited_sources=[c.ref]) for c in context[:3]]
+            )
             answer = LLMAnswer(
                 answer=f"Según las fuentes: {first.text[:200]}",
                 cited_sources=[first.ref],
+                points=points,
                 insufficient_evidence=False,
             )
         return LLMResult(answer=answer, input_tokens=0, output_tokens=0)
+
+    def verify(
+        self, question: str, claims: Sequence[tuple[str, str, Sequence[ContextChunk]]]
+    ) -> VerificationResult:
+        """Por defecto lo da todo por respaldado; `unsupported` marca ids como no respaldados."""
+        self.verify_calls.append(list(claims))
+        return VerificationResult(
+            supported={claim_id: claim_id not in self.unsupported for claim_id, _, _ in claims},
+            input_tokens=0,
+            output_tokens=0,
+        )
 
     def generate_summary(self, filename: str, chunks: Sequence[ContextChunk]) -> SummaryResult:
         self.summary_calls.append((filename, list(chunks)))

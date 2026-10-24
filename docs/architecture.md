@@ -77,9 +77,13 @@ flowchart TD
     C -->|sí| RR["Reordenamiento: el LLM elige 5 de 20 candidatos<br/>(RAG_STRATEGY=rerank; ids validados)"]
     RR --> CC["Contexto acotado: top 5, ≤ 8000 caracteres<br/>ids S1, S2…, texto delimitado y escapado"]
     CS --> LLM
-    CC --> LLM["LLM con salida estructurada<br/>answer · cited_sources · insufficient_evidence"]
-    LLM --> VC["Verificación de citas en el servidor<br/>se descartan ids inexistentes"]
-    VC --> OK{"¿Queda alguna cita válida<br/>y hay evidencia?"}
+    CC --> LLM["LLM con salida estructurada (breve, detallada o pasos)<br/>answer · points con sus fuentes · insufficient_evidence"]
+    LLM --> VC["Verificación de citas en el servidor<br/>se descartan ids inexistentes y puntos sin cita"]
+    VC --> VF{"¿Formato detallado o pasos?"}
+    VF -->|sí| VV["Verificación de cada afirmación<br/>contra el texto de SUS fuentes (2.ª llamada)"]
+    VF -->|no| OK
+    VV --> OK
+    OK{"¿Queda alguna afirmación respaldada<br/>y hay evidencia?"}
     OK -->|no| NE
     OK -->|sí| R["Respuesta + fuentes desde la base de datos<br/>(documento, página, extracto)"]
 ```
@@ -141,6 +145,7 @@ texto de la pregunta, de los documentos ni de la respuesta.
 | pgvector en PostgreSQL | Una sola base de datos para metadatos y vectores; transacciones | — |
 | Búsqueda exacta, sin índice HNSW | Con pocos miles de fragmentos es rápida y no pierde resultados; el índice se añade cuando el volumen lo justifique | — |
 | Búsqueda híbrida + RRF | Los embeddings fallan con códigos, nombres y números exactos | — |
+| Formatos de respuesta con verificación | Las respuestas largas tienden a añadir lo que no está en los documentos | [ADR 0005](decisions/0005-formatos-de-respuesta.md) |
 | Reordenar candidatos con el LLM | En documentos largos y repetitivos la respuesta queda fuera de los 5 primeros | [ADR 0004](decisions/0004-reordenamiento-con-llm.md) |
 | Fragmentos por página | Cada fragmento pertenece a una sola página, para poder citarla | — |
 | `VARCHAR` + `CHECK` para el estado | Más fácil de migrar que un `ENUM` nativo | — |

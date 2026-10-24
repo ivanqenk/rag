@@ -45,12 +45,15 @@ from app.services.llm import (
     LLMResult,
     RerankResult,
     SummaryResult,
+    VerificationResult,
     build_llm_provider,
 )
 from app.services.prompts import (
+    ANSWER_STYLES,
     PROMPT_VERSION,
     RERANK_PROMPT_VERSION,
     SUMMARY_PROMPT_VERSION,
+    VERIFY_PROMPT_VERSION,
     ContextChunk,
 )
 from app.services.storage import LocalFileStorage
@@ -71,14 +74,24 @@ class MeteredLLM:
         self.input_tokens = 0
         self.output_tokens = 0
 
-    def generate_answer(self, question: str, context: list[ContextChunk]) -> LLMResult:
-        result = self._inner.generate_answer(question, context)
+    def generate_answer(
+        self, question: str, context: list[ContextChunk], style: str = "brief"
+    ) -> LLMResult:
+        result = self._inner.generate_answer(question, context, style)
         self.input_tokens += result.input_tokens
         self.output_tokens += result.output_tokens
         return result
 
     def generate_summary(self, filename: str, chunks: list[ContextChunk]) -> SummaryResult:
         result = self._inner.generate_summary(filename, chunks)
+        self.input_tokens += result.input_tokens
+        self.output_tokens += result.output_tokens
+        return result
+
+    def verify(
+        self, question: str, claims: list[tuple[str, str, list[ContextChunk]]]
+    ) -> VerificationResult:
+        result = self._inner.verify(question, claims)
         self.input_tokens += result.input_tokens
         self.output_tokens += result.output_tokens
         return result
@@ -94,8 +107,12 @@ class MeteredLLM:
 class QuestionResult:
     id: str
     type: str
+    style: str
     question: str
     answer: str
+    points: list[str]
+    # Afirmaciones descartadas por el servidor (sin cita válida o sin respaldo verificado).
+    removed_claims: list[str]
     abstained: bool
     expected_abstention: bool
     abstention_correct: bool
@@ -179,14 +196,22 @@ def run_evaluation(
     pause_seconds: float = 0,
     provider_label: str = "fake",
     dataset_dir: Path = DATASET_PATH.parent,
+    style: str | None = None,
 ) -> Report:
+    """`style` fuerza un formato de respuesta para todas las preguntas; si no, cada pregunta
+    usa el suyo (o breve)."""
     metered = MeteredLLM(llm)
     report = Report(
         dataset_version=dataset["version"],
         provider=provider_label,
         embedding_model=embedder.model_name,
         llm_model=llm.model_name,
-        prompt_versions=[PROMPT_VERSION, RERANK_PROMPT_VERSION, SUMMARY_PROMPT_VERSION],
+        prompt_versions=[
+            PROMPT_VERSION,
+            RERANK_PROMPT_VERSION,
+            VERIFY_PROMPT_VERSION,
+            SUMMARY_PROMPT_VERSION,
+        ],
         rag_strategy=settings.rag_strategy,
         retrieval_min_score=settings.retrieval_min_score,
         started_at=datetime.now(UTC).isoformat(timespec="seconds"),
@@ -209,8 +234,11 @@ def run_evaluation(
         ingestion_cost = _cost(settings, metered.input_tokens, metered.output_tokens)
 
         for spec in dataset["questions"]:
+            question_style = style or spec.get("style", "brief")
             report.questions.append(
-                _evaluate_question(session, settings, embedder, metered, spec, document_ids)
+                _evaluate_question(
+                    session, settings, embedder, metered, spec, document_ids, question_style
+                )
             )
             time.sleep(pause_seconds)
 
@@ -225,6 +253,7 @@ def _evaluate_question(
     llm: MeteredLLM,
     spec: dict[str, Any],
     document_ids: dict[str, UUID],
+    style: str = "brief",
 ) -> QuestionResult:
     question = spec["question"]
     expected_doc = document_ids.get(spec["document"]) if spec["document"] else None
@@ -247,7 +276,7 @@ def _evaluate_question(
 
     tokens_before = (llm.input_tokens, llm.output_tokens)
     started = time.perf_counter()
-    answer = rag.answer_question(session, embedder, llm, settings, question, scope)
+    answer = rag.answer_question(session, embedder, llm, settings, question, scope, style)
     latency_ms = (time.perf_counter() - started) * 1000
     input_tokens = llm.input_tokens - tokens_before[0]
     output_tokens = llm.output_tokens - tokens_before[1]
@@ -256,6 +285,8 @@ def _evaluate_question(
     if expected_doc is not None and expected_page is not None:
         retrieval_hit = (expected_doc, expected_page) in answer.considered
 
+    # El contenido se busca en el resumen y en los puntos.
+    full_text = " ".join([answer.answer, *(p.text for p in answer.points)])
     citation_correct: bool | None = None
     content_correct: bool | None = None
     if not expected_abstention:
@@ -265,15 +296,18 @@ def _evaluate_question(
             for s in answer.sources
         )
         content_correct = not answer.insufficient_evidence and _includes(
-            answer.answer, spec.get("must_include", [])
+            full_text, spec.get("must_include", [])
         )
-    forbidden = any(_fold(t) in _fold(answer.answer) for t in spec.get("must_not_include", []))
+    forbidden = any(_fold(t) in _fold(full_text) for t in spec.get("must_not_include", []))
 
     return QuestionResult(
         id=spec["id"],
         type=spec["type"],
+        style=style,
         question=question,
         answer=answer.answer,
+        points=[p.text for p in answer.points],
+        removed_claims=answer.removed_claims,
         abstained=answer.insufficient_evidence,
         expected_abstention=expected_abstention,
         abstention_correct=answer.insufficient_evidence == expected_abstention,
@@ -313,6 +347,12 @@ def _aggregate(results: list[QuestionResult], ingestion_cost: float) -> dict[str
         "injection_resisted": _rate(
             [not r.forbidden_text_found for r in results if r.type == "injection"]
         ),
+        # Preguntas que invitan a añadir lo que no está en los documentos (consejos genéricos):
+        # 1.0 = ninguna respuesta contuvo el texto prohibido.
+        "grounding_resisted": _rate(
+            [not r.forbidden_text_found for r in results if r.type == "grounding"]
+        ),
+        "removed_claims_total": sum(len(r.removed_claims) for r in results),
         "latency_ms_p50": round(statistics.median(latencies), 1),
         "latency_ms_max": latencies[-1],
         "query_cost_usd_avg": round(statistics.fmean(r.cost_usd for r in results), 6),
@@ -334,14 +374,16 @@ def print_report(report: Report) -> None:
         f"estrategia={report.rag_strategy} · umbral={report.retrieval_min_score}\n"
     )
     print(
-        f"{'id':4} {'tipo':15} {'recup':5} {'cita':4} {'datos':5} {'abst':4} {'sim':>5} {'ms':>7}"
+        f"{'id':4} {'tipo':15} {'formato':8} {'recup':5} {'cita':4} {'datos':5} {'abst':4} "
+        f"{'invent':6} {'sim':>5} {'ms':>7}"
     )
     for r in report.questions:
         sim = f"{r.best_vector_similarity:.2f}" if r.best_vector_similarity is not None else "—"
         print(
-            f"{r.id:4} {r.type:15} {_mark(r.retrieval_hit):5} {_mark(r.citation_correct):4} "
-            f"{_mark(r.content_correct):5} {_mark(r.abstention_correct):4} {sim:>5} "
-            f"{r.latency_ms:7.0f}"
+            f"{r.id:4} {r.type:15} {r.style:8} {_mark(r.retrieval_hit):5} "
+            f"{_mark(r.citation_correct):4} {_mark(r.content_correct):5} "
+            f"{_mark(r.abstention_correct):4} {'✗' if r.forbidden_text_found else '✓':6} "
+            f"{sim:>5} {r.latency_ms:7.0f}"
         )
     print("\nMétricas:")
     for name, value in report.metrics.items():
@@ -358,6 +400,11 @@ def main() -> None:
         "--strategy",
         choices=["simple", "rerank", "progressive"],
         help="RAG_STRATEGY a evaluar (por defecto, la de la configuración)",
+    )
+    parser.add_argument(
+        "--style",
+        choices=ANSWER_STYLES,
+        help="fuerza un formato de respuesta para todas las preguntas",
     )
     parser.add_argument(
         "--pause", type=float, default=0, help="segundos entre llamadas (límites por minuto)"
@@ -387,12 +434,14 @@ def main() -> None:
         pause_seconds=args.pause,
         provider_label=provider,
         dataset_dir=dataset_path.parent,
+        style=args.style,
     )
     print_report(report)
 
     RESULTS_DIR.mkdir(exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    output = RESULTS_DIR / f"{dataset['version']}-{provider}-{settings.rag_strategy}-{stamp}.json"
+    label = f"{dataset['version']}-{provider}-{settings.rag_strategy}-{args.style or 'mixto'}"
+    output = RESULTS_DIR / f"{label}-{stamp}.json"
     output.write_text(json.dumps(asdict(report), ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\nInforme completo: {output.relative_to(BACKEND_DIR)}")
 

@@ -22,6 +22,15 @@ def handbook_id(client: TestClient) -> str:
     return response.json()["id"]
 
 
+NO_EVIDENCE_BODY = {
+    "answer": NO_EVIDENCE_ANSWER,
+    "sources": [],
+    "insufficient_evidence": True,
+    "answer_style": "brief",
+    "points": [],
+}
+
+
 def use_llm(llm: FakeLLMProvider) -> FakeLLMProvider:
     app.dependency_overrides[get_llm_provider] = lambda: llm
     return llm
@@ -54,7 +63,7 @@ def test_no_relevant_chunks_abstains_without_calling_the_llm(
 ) -> None:
     body = ask(client, "receta de paella valenciana con mariscos")
 
-    assert body == {"answer": NO_EVIDENCE_ANSWER, "sources": [], "insufficient_evidence": True}
+    assert body == NO_EVIDENCE_BODY
     assert llm.calls == []  # sin evidencia no se gasta dinero en el LLM
 
 
@@ -101,7 +110,7 @@ def test_answer_without_any_valid_citation_is_not_trusted(
 
     body = ask(client, "¿cuántos días de vacaciones tengo?")
 
-    assert body == {"answer": NO_EVIDENCE_ANSWER, "sources": [], "insufficient_evidence": True}
+    assert body == NO_EVIDENCE_BODY
 
 
 def test_llm_receives_bounded_context_from_retrieval(
@@ -139,7 +148,7 @@ def test_llm_failure_returns_503(client: TestClient, handbook_id: str) -> None:
     class DownLLM:
         model_name = "down"
 
-        def generate_answer(self, question: str, context: list) -> None:
+        def generate_answer(self, question: str, context: list, style: str = "brief") -> None:
             raise LLMError("El proveedor de LLM no está disponible. Inténtalo más tarde.")
 
     app.dependency_overrides[get_llm_provider] = lambda: DownLLM()

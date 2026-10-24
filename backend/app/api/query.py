@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.scope import check_scope_exists
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
-from app.schemas.query import QueryRequest, QueryResponse, SourceItem
+from app.schemas.query import PointItem, QueryRequest, QueryResponse, SourceItem
 from app.services import rag
 from app.services.embeddings import EmbeddingError, EmbeddingProvider, get_embedding_provider
 from app.services.llm import LLMError, LLMProvider, get_llm_provider
@@ -50,7 +50,9 @@ def query_documents(
     check_scope_exists(session, request)
 
     try:
-        result = rag.answer_question(session, embedder, llm, settings, question, request.to_scope())
+        result = rag.answer_question(
+            session, embedder, llm, settings, question, request.to_scope(), request.answer_style
+        )
     except (EmbeddingError, LLMError) as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, exc.message) from None
 
@@ -58,4 +60,6 @@ def query_documents(
         answer=result.answer,
         sources=[SourceItem(**asdict(source)) for source in result.sources],
         insufficient_evidence=result.insufficient_evidence,
+        answer_style=request.answer_style,
+        points=[PointItem(text=p.text, sources=p.source_indexes) for p in result.points],
     )

