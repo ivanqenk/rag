@@ -42,7 +42,8 @@ def create_long_document(session: Session, settings: Settings, pages: int) -> No
 def test_keyword_terms_drop_stopwords_and_duplicates() -> None:
     terms = retrieval.keyword_terms("¿Cuántos indios de guerra pidió Cortés a los de Tlascala?")
 
-    assert terms == ["indios", "guerra", "pidió", "cortés", "tlascala"]
+    # Sin tildes, igual que la columna de búsqueda (immutable_unaccent).
+    assert terms == ["indios", "guerra", "pidio", "cortes", "tlascala"]
 
 
 def test_keyword_search_does_not_need_every_word(
@@ -59,6 +60,19 @@ def test_keyword_search_does_not_need_every_word(
 
     assert [r.page_number for r in results] == [2]
     assert results[0].keyword_match is True
+
+
+@pytest.mark.parametrize("query", ["política reembolso factura", "politica reembolsan FACTURA"])
+def test_keyword_search_ignores_accents_and_case(
+    db_session: Session, client: TestClient, settings: Settings, query: str
+) -> None:
+    upload(client, [VACATIONS, EXPENSES, SECURITY])
+    keywords_only = settings.model_copy(update={"retrieval_min_score": 1.0})
+
+    # El texto dice «Política de gastos… se reembolsan presentando factura».
+    results = retrieval.search(db_session, FakeEmbeddingProvider(), keywords_only, query, 5)
+
+    assert [r.page_number for r in results] == [2]
 
 
 def test_a_single_loose_word_is_not_evidence(

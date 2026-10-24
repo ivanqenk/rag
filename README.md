@@ -256,7 +256,8 @@ exacta) con la búsqueda por palabras de PostgreSQL (`tsvector`), útil para nom
 códigos y números exactos. Las dos listas se fusionan con Reciprocal Rank Fusion. En la de
 palabras basta con que el fragmento contenga al menos la mitad de las palabras importantes de
 la pregunta, y cuentan más las palabras raras («Tezcuco») que las frecuentes («Cortés»): una
-puntuación tipo BM25.
+puntuación tipo BM25. No distingue tildes ni mayúsculas: «pidio» encuentra «pidió» (extensión
+`unaccent` de PostgreSQL).
 
 - Opcional: `"document_id"` limita la búsqueda a un documento, y `"page_number"` (con
   `document_id`) a una de sus páginas. `404` si el documento no existe.

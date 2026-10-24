@@ -222,9 +222,9 @@ equivalentes a detallada y se sustituyó por la numeración automática.
 
 ## Hallazgos y mejoras posibles
 
-1. **Búsqueda por palabras clave** (resuelto): ver el conjunto del libro. Queda pendiente
-   que «pidio» (sin tilde) no coincide con «pidió»; se resolvería con la extensión `unaccent`
-   de PostgreSQL.
+1. **Búsqueda por palabras clave** (resuelto): ver el conjunto del libro. Desde la migración
+   `unaccent full text search` tampoco distingue tildes: «pidio» encuentra «pidió» (columna
+   calculada con `immutable_unaccent`). Ambos conjuntos siguen al 100 % tras el cambio.
 2. **Las preguntas de resumen dependen de una heurística** de patrones (ADR 0003).
 3. **Los conjuntos son pequeños** (31 + 23 preguntas): sirven para detectar regresiones y
    comparar cambios, no para afirmar una precisión general del sistema.

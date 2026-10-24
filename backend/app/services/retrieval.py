@@ -16,6 +16,7 @@ import logging
 import math
 import re
 import time
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass
 from uuid import UUID
@@ -45,9 +46,19 @@ BM25_K1 = 1.2
 MIN_TERM_COVERAGE = 0.5
 # Letras y dígitos (sin "_", que el analizador de PostgreSQL trata como separador).
 _WORD_RE = re.compile(r"[^\W_]+")
-# Palabras vacías frecuentes en español e inglés: no ayudan a distinguir fragmentos.
+
+
+def fold(text: str) -> str:
+    """Minúsculas y sin tildes, igual que immutable_unaccent en PostgreSQL («Pidió» → «pidio»)."""
+    decomposed = unicodedata.normalize("NFKD", text.lower())
+    return "".join(c for c in decomposed if not unicodedata.combining(c))
+
+
+# Palabras vacías frecuentes en español e inglés: no ayudan a distinguir fragmentos. Se
+# guardan sin tildes, como las palabras de la pregunta.
 STOPWORDS = frozenset(
-    """
+    fold(word)
+    for word in """
     al ante con contra del desde donde durante entre hacia hasta las los mas para pero por
     que qué quien quién quienes cual cuál cuales cuáles cuando cuándo como cómo cuanto cuánto
     cuanta cuánta cuantos cuántos cuantas cuántas sin sobre tras una uno unos unas este esta
@@ -85,9 +96,9 @@ class SearchResult:
 
 
 def keyword_terms(query: str) -> list[str]:
-    """Palabras de la pregunta útiles para buscar: sin palabras vacías ni repetidas."""
+    """Palabras de la pregunta útiles para buscar: sin tildes, palabras vacías ni repetidas."""
     terms: list[str] = []
-    for word in _WORD_RE.findall(query.lower()):
+    for word in _WORD_RE.findall(fold(query)):
         if len(word) >= 3 and word not in STOPWORDS and word not in terms:
             terms.append(word)
     return terms[:MAX_KEYWORD_TERMS]
@@ -224,7 +235,7 @@ def _keyword_search(
     min_matches = math.ceil(len(terms) * MIN_TERM_COVERAGE)
 
     def bm25(chunk: DocumentChunk) -> float:
-        frequencies = Counter(_WORD_RE.findall(chunk.text.lower()))
+        frequencies = Counter(_WORD_RE.findall(fold(chunk.text)))
         matched = [term for term in terms if frequencies[term]]
         if len(matched) < min_matches:
             return 0.0

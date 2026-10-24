@@ -47,8 +47,9 @@ class DocumentChunk(Base):
     embedding_model: Mapped[str | None] = mapped_column(String(100))
     # Columna calculada por PostgreSQL para la búsqueda por palabras. Configuración 'simple':
     # sin stemming ni stopwords de un idioma concreto, sirve igual para español e inglés y
-    # encuentra literalmente nombres propios, códigos y números.
+    # encuentra literalmente nombres propios, códigos y números. Sin tildes (immutable_unaccent,
+    # creada en una migración): «pidio» encuentra «pidió».
     search_vector: Mapped[str] = mapped_column(
-        TSVECTOR, Computed("to_tsvector('simple', text)", persisted=True)
+        TSVECTOR, Computed("to_tsvector('simple', immutable_unaccent(text))", persisted=True)
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
