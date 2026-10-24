@@ -1,5 +1,6 @@
 import { Icon } from './components/Icon'
 import { ThemeToggle } from './components/ThemeToggle'
+import { UsageBar } from './components/UsageBar'
 import { AskPage } from './pages/AskPage'
 import { DocumentPage } from './pages/DocumentPage'
 import { LibraryPage } from './pages/LibraryPage'
@@ -59,6 +60,7 @@ export default function App() {
         {route.name === 'document' && <DocumentPage key={route.id} id={route.id} />}
       </main>
       <footer className="app-footer">
+        <UsageBar refreshKey={window.location.hash} />
         Demo de portafolio de un solo usuario: no es un servicio listo para producción.
       </footer>
     </>

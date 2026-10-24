@@ -186,7 +186,7 @@ def prepare_database(database_url: str) -> Engine:
     command.upgrade(config, "head")
     engine = create_engine(database_url)
     with engine.begin() as connection:
-        connection.execute(text("TRUNCATE documents, document_chunks, folders"))
+        connection.execute(text("TRUNCATE documents, document_chunks, folders, usage_daily"))
     return engine
 
 

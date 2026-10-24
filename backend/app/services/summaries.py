@@ -10,7 +10,7 @@ import logging
 import re
 import unicodedata
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from app.core.config import Settings
 from app.services.chunking import TextChunk
@@ -67,12 +67,18 @@ def select_summary_chunks(chunks: Sequence[TextChunk], max_chars: int) -> list[T
     return selected or [replace(chunks[0], text=chunks[0].text[:max_chars])]
 
 
+@dataclass(frozen=True)
+class DocumentSummary:
+    text: str
+    cost_usd: float  # estimado, para el presupuesto diario
+
+
 def summarize_document(
     llm: LLMProvider | None,
     settings: Settings,
     filename: str,
     chunks: Sequence[TextChunk],
-) -> str | None:
+) -> DocumentSummary | None:
     """Genera el resumen o devuelve None si no hay LLM o el proveedor falla.
 
     El resumen es un extra: si falla, el documento sigue siendo consultable con normalidad.
@@ -110,4 +116,4 @@ def summarize_document(
         result.output_tokens,
         cost,
     )
-    return summary or None
+    return DocumentSummary(text=summary, cost_usd=cost) if summary else None

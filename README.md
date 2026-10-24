@@ -4,7 +4,8 @@ Aplicación web para cargar documentos PDF y hacerles preguntas en lenguaje natu
 (Retrieval-Augmented Generation), con respuestas que citan el documento y la página de origen.
 
 > **Estado:** MVP completo (Fase 7). Proyecto de portafolio / aprendizaje; **no** es un servicio
-> listo para producción ni para exponerse a Internet (no tiene autenticación ni rate limiting).
+> listo para producción ni para exponerse a Internet (no tiene autenticación; los límites de uso
+> son por IP).
 
 **Qué hace:** subes PDFs; el sistema extrae su texto, lo divide en fragmentos, genera
 embeddings y un resumen de cada documento, y responde preguntas citando documento, página y
@@ -187,6 +188,7 @@ Para borrarlos por completo: `docker compose down -v`.
 | POST   | `/api/v1/folders`               | Crea una carpeta `{"name": "…"}` (`409` si el nombre ya existe, sin distinguir mayúsculas) |
 | PATCH  | `/api/v1/folders/{id}`          | Renombra la carpeta                                     |
 | DELETE | `/api/v1/folders/{id}`          | Borra la carpeta; sus documentos **no** se borran: quedan sin carpeta |
+| GET    | `/api/v1/usage`                 | Gasto de hoy, espacio ocupado y límites configurados    |
 | GET    | `/api/v1/trash`                 | Documentos de la papelera, con `retention_days`         |
 | POST   | `/api/v1/trash/{id}/restore`    | Restaura un documento de la papelera (sin reprocesarlo) |
 | DELETE | `/api/v1/trash/{id}`            | Lo borra del todo: registro, fragmentos, embeddings y archivo |
@@ -397,6 +399,28 @@ Las pruebas simulan `fetch`, así que no necesitan el backend. Incluyen una prue
 una respuesta del LLM con HTML malicioso (`<img onerror>`, `<script>`, imágenes Markdown) debe
 mostrarse como texto inerte.
 
+## Límites y cuotas
+
+Protegen el gasto en OpenAI y el servidor. Mientras no haya usuarios, la frecuencia se limita
+por dirección IP y el presupuesto y las cuotas son globales (`0` desactiva cada límite):
+
+| Límite | Por defecto | Al superarlo |
+|---|---|---|
+| `RATE_LIMIT_QUERIES_PER_MINUTE` (`/query` y `/search`) | 20 por IP | `429` con `Retry-After` |
+| `RATE_LIMIT_UPLOADS_PER_HOUR` (subir y reprocesar) | 30 por IP | `429` con `Retry-After` |
+| `DAILY_BUDGET_USD`: gasto estimado en OpenAI por día (UTC) | $1.00 | `429` en preguntas y subidas hasta el día siguiente |
+| `MAX_DOCUMENTS` (incluida la papelera) | 500 | `403` al subir |
+| `MAX_STORAGE_MB` (incluida la papelera) | 1000 | `403` al subir |
+
+- El gasto se calcula con los tokens reales de cada llamada al LLM (respuesta, reordenamiento,
+  verificación, resumen) y una estimación para los embeddings, y se guarda por día en la tabla
+  `usage_daily`, así que no se reinicia con el servidor. No guarda preguntas ni textos.
+- `GET /api/v1/usage` devuelve el gasto de hoy, el espacio ocupado y los límites; el pie de la
+  aplicación los muestra.
+- La ventana de frecuencia es deslizante y vive en memoria (por proceso): con varias réplicas
+  haría falta Redis o el límite del balanceador (Fase 8). Detrás de nginx, la IP sale de
+  `X-Forwarded-For`, que nginx **sobrescribe** con la IP real para que no se pueda falsificar.
+
 ## Evaluación del RAG
 
 Un conjunto versionado de 5 documentos ficticios y 25 preguntas (datos concretos con otras
@@ -477,8 +501,9 @@ Metodología, resultados e interpretación en [`docs/rag-evaluation.md`](docs/ra
 
 ## Limitaciones conocidas
 
-- **Sin autenticación, autorización ni rate limiting**: todos los documentos son visibles para
-  cualquiera que acceda. No exponer a Internet.
+- **Sin autenticación ni autorización**: todos los documentos son visibles para cualquiera que
+  acceda. Los límites de uso son por IP y globales, y el limitador vive en memoria (por
+  proceso). No exponer a Internet.
 - **Procesamiento en segundo plano dentro del backend** (hilos del mismo proceso): sirve para
   una instancia; con varias réplicas haría falta una cola compartida (Fase 8: SQS + worker).
 - **PDF escaneados no soportados** (sin OCR): quedan `failed` con un mensaje explicativo.

@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.models.document import Document
 from app.repositories.documents import DocumentRepository
+from app.repositories.usage import UsageRepository
 from app.schemas.document import DocumentStatus
 from app.services.chunking import chunk_pages
 from app.services.embeddings import EmbeddingError, EmbeddingProvider
@@ -134,9 +135,15 @@ def process_document(
         # Si ya tenía uno (reprocesado), se conserva: describe el mismo archivo.
         summary = summarize_document(llm, settings, document.original_filename, chunks)
         if summary is not None and llm is not None:
-            document.summary = summary
+            document.summary = summary.text
             document.summary_model = llm.model_name
         repository.replace_chunks(document.id, chunks, embeddings, embedder.model_name)
+        # Gasto estimado para el presupuesto diario, en la misma transacción. El proveedor de
+        # embeddings no devuelve tokens: ~4 caracteres por token.
+        embedding_tokens = sum(len(chunk.text) for chunk in chunks) / 4
+        cost = embedding_tokens * settings.embedding_price_per_mtok / 1_000_000
+        cost += summary.cost_usd if summary else 0
+        UsageRepository(session).add(cost, documents_processed=1)
         document.status = DocumentStatus.COMPLETED
         document.error_code = None
         document.error_message = None

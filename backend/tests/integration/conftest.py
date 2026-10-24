@@ -20,6 +20,7 @@ from app.core.config import Settings, get_settings
 from app.db.session import get_db, get_session_factory
 from app.main import app
 from app.services.embeddings import FakeEmbeddingProvider, get_embedding_provider
+from app.services.limits import SlidingWindowLimiter, get_rate_limiter
 from app.services.llm import FakeLLMProvider, get_llm_provider, get_optional_llm_provider
 
 TEST_DATABASE_URL = os.environ.get(
@@ -58,7 +59,7 @@ def db_session(engine: Engine) -> Iterator[Session]:
         yield session
     # Cada prueba empieza con tablas vacías.
     with engine.begin() as connection:
-        connection.execute(text("TRUNCATE documents, document_chunks, folders"))
+        connection.execute(text("TRUNCATE documents, document_chunks, folders, usage_daily"))
 
 
 @pytest.fixture
@@ -111,6 +112,9 @@ def client(
         bind=engine, expire_on_commit=False
     )
     app.dependency_overrides[get_settings] = lambda: settings
+    # Un limitador nuevo por prueba: los contadores no se arrastran de una a otra.
+    limiter = SlidingWindowLimiter()
+    app.dependency_overrides[get_rate_limiter] = lambda: limiter
     # Nunca llamar a un proveedor real (de pago) desde la suite, aunque .env tenga una clave.
     app.dependency_overrides[get_embedding_provider] = lambda: embedder
     app.dependency_overrides[get_llm_provider] = lambda: llm

@@ -25,6 +25,7 @@ from app.repositories.folders import FolderRepository
 from app.schemas.document import DocumentPage, DocumentRead, DocumentUpdate
 from app.services import ingestion, processing, trash
 from app.services.embeddings import EmbeddingProvider, get_embedding_provider
+from app.services.limits import UploadLimits, check_storage_quota
 from app.services.llm import LLMProvider, get_optional_llm_provider
 from app.services.pdf_extraction import InvalidPdfError
 from app.services.storage import LocalFileStorage, get_storage
@@ -44,7 +45,10 @@ MAX_PAGE_SIZE = 100
     "",
     status_code=status.HTTP_201_CREATED,
     response_model=DocumentRead,
+    dependencies=[UploadLimits],
     responses={
+        403: {"description": "Se alcanzó el máximo de documentos o de espacio"},
+        429: {"description": "Demasiadas subidas o presupuesto diario agotado"},
         202: {"description": "Recibido; se procesa en segundo plano (PROCESSING_MODE=background)"},
         400: {"description": "Archivo vacío"},
         404: {"description": "La carpeta indicada no existe"},
@@ -86,6 +90,7 @@ def upload_document(
 
     if folder_id is not None:
         _check_folder_exists(session, folder_id)
+    check_storage_quota(session, settings, len(data))
 
     try:
         document = ingestion.register_upload(
@@ -211,7 +216,9 @@ def delete_document(
 @router.post(
     "/{document_id}/reprocess",
     response_model=DocumentRead,
+    dependencies=[UploadLimits],
     responses={
+        429: {"description": "Demasiados reprocesados o presupuesto diario agotado"},
         202: {"description": "En cola; se procesa en segundo plano (PROCESSING_MODE=background)"},
         404: {"description": "Documento no encontrado"},
         409: {"description": "El documento está en la papelera"},

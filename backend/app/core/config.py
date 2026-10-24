@@ -89,6 +89,20 @@ class Settings(BaseSettings):
     summary_max_input_chars: int = Field(default=12000, ge=1000)
     summary_max_chars: int = Field(default=1500, ge=200)
 
+    # Límites y cuotas (0 = sin límite). Mientras no haya usuarios, los límites de frecuencia
+    # son por dirección IP y el presupuesto y las cuotas son globales.
+    rate_limit_queries_per_minute: int = Field(default=20, ge=0)
+    rate_limit_uploads_per_hour: int = Field(default=30, ge=0)
+    # Gasto máximo estimado en OpenAI por día (UTC). Al alcanzarlo, las preguntas y las subidas
+    # responden 429 hasta el día siguiente.
+    daily_budget_usd: float = Field(default=1.0, ge=0)
+    # Incluyen la papelera: sus documentos siguen ocupando espacio hasta que se purgan.
+    max_documents: int = Field(default=500, ge=0)
+    max_storage_mb: int = Field(default=1000, ge=0)
+    # Precio de los embeddings (USD por millón de tokens) para estimar su costo. El proveedor no
+    # devuelve el número de tokens: se estima con ~4 caracteres por token.
+    embedding_price_per_mtok: float = Field(default=0.02, ge=0)
+
     # Papelera: los documentos eliminados se pueden restaurar durante este tiempo; después se
     # borran del todo (registro, fragmentos y archivo). La comprobación se repite cada hora.
     trash_retention_days: int = Field(default=30, ge=1)

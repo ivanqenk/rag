@@ -98,6 +98,12 @@ flowchart TD
 erDiagram
     folders |o--o{ documents : "agrupa (ON DELETE SET NULL)"
     documents ||--o{ document_chunks : "tiene (ON DELETE CASCADE)"
+    usage_daily {
+        date day PK "UTC"
+        numeric cost_usd "gasto estimado (presupuesto diario)"
+        int queries
+        int documents_processed
+    }
     folders {
         uuid id PK
         varchar name "único sin distinguir mayúsculas (índice sobre lower(name))"
@@ -168,7 +174,11 @@ texto de la pregunta, de los documentos ni de la respuesta.
   `store=False` en las llamadas al LLM.
 - **Contenedores**: usuarios sin privilegios; el backend no publica puertos (solo es accesible
   a través de nginx); PostgreSQL y el frontend solo escuchan en `127.0.0.1`.
-- **Fuera del MVP**: autenticación, autorización por usuario, rate limiting y cuotas. Por eso
+- **Límites de uso** (`services/limits.py`): frecuencia por IP (ventana deslizante en memoria),
+  presupuesto diario de OpenAI guardado en `usage_daily` y cuotas de documentos y espacio. La IP
+  sale de `X-Forwarded-For`, que nginx sobrescribe con la real.
+- **Fuera del MVP**: autenticación y autorización por usuario (los límites pasarán a ser por
+  usuario u organización). Por eso
   **no debe exponerse a Internet** tal como está.
 
 ## Evolución prevista (Fase 8)

@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api import documents, folders, health, query, search, trash
+from app.api import documents, folders, health, query, search, trash, usage
 from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.services.processing import resume_unfinished
@@ -55,3 +55,4 @@ app.include_router(folders.router)
 app.include_router(trash.router)
 app.include_router(search.router)
 app.include_router(query.router)
+app.include_router(usage.router)

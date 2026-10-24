@@ -71,3 +71,19 @@ export interface QueryResponse {
   // Los puntos son pasos de un procedimiento: mostrarlos numerados.
   points_ordered: boolean
 }
+
+export interface Usage {
+  day: string
+  // Gasto estimado de hoy (UTC) en el proveedor de IA y el máximo diario (0 = sin límite).
+  cost_usd: number
+  daily_budget_usd: number
+  queries_today: number
+  documents_processed_today: number
+  // Incluyen la papelera. max_* = 0: sin límite.
+  documents: number
+  max_documents: number
+  storage_bytes: number
+  max_storage_bytes: number
+  queries_per_minute: number
+  uploads_per_hour: number
+}

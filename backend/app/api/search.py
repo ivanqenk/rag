@@ -12,6 +12,7 @@ from app.db.session import get_db
 from app.schemas.search import SearchRequest, SearchResponse, SearchResultItem
 from app.services import retrieval
 from app.services.embeddings import EmbeddingError, EmbeddingProvider, get_embedding_provider
+from app.services.limits import QueryLimits
 
 router = APIRouter(prefix="/api/v1", tags=["search"])
 
@@ -19,7 +20,9 @@ router = APIRouter(prefix="/api/v1", tags=["search"])
 @router.post(
     "/search",
     response_model=SearchResponse,
+    dependencies=[QueryLimits],
     responses={
+        429: {"description": "Demasiadas consultas seguidas o presupuesto diario agotado"},
         404: {"description": "La carpeta o el documento indicados no existen"},
         422: {"description": "Consulta vacía, demasiado larga o top_k fuera de rango"},
         503: {"description": "Proveedor de embeddings no configurado o no disponible"},

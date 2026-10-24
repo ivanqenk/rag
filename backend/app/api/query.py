@@ -9,9 +9,11 @@ from sqlalchemy.orm import Session
 from app.api.scope import check_scope_exists
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
+from app.repositories.usage import UsageRepository
 from app.schemas.query import PointItem, QueryRequest, QueryResponse, SourceItem
 from app.services import rag
 from app.services.embeddings import EmbeddingError, EmbeddingProvider, get_embedding_provider
+from app.services.limits import QueryLimits
 from app.services.llm import LLMError, LLMProvider, get_llm_provider
 
 router = APIRouter(prefix="/api/v1", tags=["query"])
@@ -20,7 +22,9 @@ router = APIRouter(prefix="/api/v1", tags=["query"])
 @router.post(
     "/query",
     response_model=QueryResponse,
+    dependencies=[QueryLimits],
     responses={
+        429: {"description": "Demasiadas preguntas seguidas o presupuesto diario agotado"},
         404: {"description": "La carpeta o el documento indicados no existen"},
         422: {"description": "Pregunta vacía o demasiado larga, o page_number sin document_id"},
         503: {"description": "Proveedor de embeddings o de LLM no configurado o no disponible"},
@@ -55,6 +59,8 @@ def query_documents(
         )
     except (EmbeddingError, LLMError) as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, exc.message) from None
+    UsageRepository(session).add(result.cost_usd, queries=1)
+    session.commit()
 
     return QueryResponse(
         answer=result.answer,

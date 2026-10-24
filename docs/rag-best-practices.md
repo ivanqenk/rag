@@ -58,7 +58,7 @@ persona que despliega · 💼 solo necesario si el proyecto pasa a ser un SaaS m
 | Límite de longitud de las preguntas | ✅ | Fase 4, `MAX_QUERY_CHARS` |
 | Secretos solo en `.env` (ignorado por Git) o gestor de secretos; nunca en logs ni frontend | ✅ | `.gitignore`, `.env.example` |
 | Límite de gasto mensual en el panel del proveedor | 👤 | Configuración manual en platform.openai.com |
-| Rate limiting y cuotas por usuario | 💼 | Obligatorio antes de exponer a Internet |
+| Rate limiting, presupuesto y cuotas | ✅ (por IP) | `services/limits.py`: 429 por frecuencia y por presupuesto diario, 403 por cuotas. Pasarán a ser por usuario u organización con el login |
 | Lockfile de dependencias | ✅ | `uv.lock` |
 | Auditoría de vulnerabilidades en dependencias | ✅ | `pip-audit` + Dependabot (`.github/dependabot.yml`) |
 | Aislamiento entre clientes: `tenant_id` en todas las consultas + Row-Level Security en PostgreSQL | 💼 | El error más grave posible en un RAG multi-cliente es recuperar documentos de otro cliente |

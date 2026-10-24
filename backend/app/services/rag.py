@@ -78,6 +78,9 @@ class RagAnswer:
     points: list[AnswerPoint] = field(default_factory=list)
     # Los puntos son pasos de un procedimiento: se muestran numerados.
     points_ordered: bool = False
+    # Costo estimado de la consulta (todas las llamadas al LLM y el embedding de la pregunta),
+    # para el presupuesto diario.
+    cost_usd: float = 0.0
     # Afirmaciones descartadas por no tener cita válida o no superar la verificación. Solo
     # para logs y evaluación (cuántas) y para revisar la verificación (cuáles); no sale por la API.
     removed_claims: list[str] = field(default_factory=list)
@@ -229,7 +232,10 @@ def answer_question(
         llm_ms,
         answer.insufficient_evidence,
     )
-    return replace(answer, considered=considered, removed_claims=removed_claims)
+    cost = _llm_cost(settings, usage) + (
+        len(question) / 4 * settings.embedding_price_per_mtok / 1_000_000
+    )
+    return replace(answer, considered=considered, removed_claims=removed_claims, cost_usd=cost)
 
 
 def _select_chunks(
@@ -379,6 +385,13 @@ def _verify(
     return kept_summary, kept_points, dropped
 
 
+def _llm_cost(settings: Settings, usage: _Usage) -> float:
+    return (
+        usage.input_tokens * settings.llm_input_price_per_mtok
+        + usage.output_tokens * settings.llm_output_price_per_mtok
+    ) / 1_000_000
+
+
 def _log(
     settings: Settings,
     llm: LLMProvider,
@@ -394,10 +407,7 @@ def _log(
     insufficient: bool,
 ) -> None:
     """Métricas por consulta. Nunca el texto de la pregunta, del contexto ni de la respuesta."""
-    cost = (
-        usage.input_tokens * settings.llm_input_price_per_mtok
-        + usage.output_tokens * settings.llm_output_price_per_mtok
-    ) / 1_000_000
+    cost = _llm_cost(settings, usage)
     logger.info(
         "Consulta RAG: %d caracteres, formato=%s, %d recuperados, %d leídos por el LLM, "
         "%d citados, %d afirmaciones descartadas, sin_evidencia=%s, estrategia=%s, modelo=%s, "

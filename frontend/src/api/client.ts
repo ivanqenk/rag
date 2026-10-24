@@ -7,6 +7,7 @@ import type {
   Folder,
   QueryResponse,
   TrashPage,
+  Usage,
 } from '../types/api'
 
 /** Error con un mensaje apto para mostrar al usuario (nunca trazas ni detalles internos). */
@@ -166,4 +167,8 @@ export function askQuestion(
       page_number: scope && 'documentId' in scope ? scope.pageNumber : undefined,
     }),
   })
+}
+
+export function getUsage(): Promise<Usage> {
+  return request<Usage>('/api/v1/usage')
 }

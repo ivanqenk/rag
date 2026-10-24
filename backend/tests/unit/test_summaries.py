@@ -85,7 +85,9 @@ def test_single_huge_chunk_is_truncated() -> None:
 def test_summary_uses_the_llm_and_respects_max_length() -> None:
     llm = FakeLLMProvider()
 
-    summary = summarize_document(llm, SETTINGS, "manual.pdf", make_chunks(3, length=400))
+    result = summarize_document(llm, SETTINGS, "manual.pdf", make_chunks(3, length=400))
+    assert result is not None
+    summary = result.text
 
     assert summary is not None
     assert summary.startswith("Resumen simulado de manual.pdf")
