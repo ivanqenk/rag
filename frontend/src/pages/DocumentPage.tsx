@@ -6,6 +6,7 @@ import {
   reprocessDocument,
   restoreDocument,
 } from '../api/client'
+import { Icon } from '../components/Icon'
 import { StatusBadge } from '../components/StatusBadge'
 import { formatBytes, formatDate } from '../format'
 import { routes } from '../router'
@@ -41,62 +42,77 @@ export function DocumentPage({ id }: { id: string }) {
   }, [id])
 
   return (
-    <section className="card" aria-labelledby="document-title">
-      <p>
-        <a href={routes.library}>← Volver a la biblioteca</a>
-      </p>
-      {state.kind === 'loading' && <p className="info">Cargando…</p>}
-      {state.kind === 'error' && (
-        <p className="error" role="alert">
-          {state.message}
-        </p>
-      )}
-      {state.kind === 'ready' && (
-        <>
-          <h2 id="document-title">{state.document.original_filename}</h2>
-          {state.document.deleted_at && (
-            <TrashNotice
-              document={state.document}
-              onRestored={(document) => setState({ kind: 'ready', document })}
-            />
-          )}
-          <dl className="metadata">
-            <dt>Estado</dt>
-            <dd>
-              <StatusBadge status={state.document.status} />
-            </dd>
-            {state.document.error_message && (
-              <>
-                <dt>Error</dt>
-                <dd>{state.document.error_message}</dd>
-              </>
-            )}
-            <dt>Tamaño</dt>
-            <dd>{formatBytes(state.document.size_bytes)}</dd>
-            <dt>Subido</dt>
-            <dd>{formatDate(state.document.created_at)}</dd>
-            <dt>Procesado</dt>
-            <dd>{state.document.processed_at ? formatDate(state.document.processed_at) : '—'}</dd>
-            <dt>Identificador</dt>
-            <dd>
-              <code>{state.document.id}</code>
-            </dd>
-          </dl>
-          <p className="links">
-            <a href={documentFileUrl(state.document.id)} target="_blank" rel="noopener noreferrer">
-              Ver PDF original
-            </a>
-            {state.document.status === 'completed' && !state.document.deleted_at && (
-              <a href={routes.askAbout(state.document.id)}>Preguntar sobre este documento</a>
-            )}
+    <div className="narrow">
+      <section className="card" aria-labelledby="document-title">
+        <a className="back-link" href={routes.library}>
+          <Icon name="back" size={16} />
+          Volver a la biblioteca
+        </a>
+        {state.kind === 'loading' && <p className="info">Cargando…</p>}
+        {state.kind === 'error' && (
+          <p className="error" role="alert">
+            {state.message}
           </p>
-          <Summary
-            document={state.document}
-            onUpdated={(document) => setState({ kind: 'ready', document })}
-          />
-        </>
-      )}
-    </section>
+        )}
+        {state.kind === 'ready' && (
+          <>
+            <h2 id="document-title" className="doc-title">
+              <Icon name="file" size={22} />
+              {state.document.original_filename}
+            </h2>
+            {state.document.deleted_at && (
+              <TrashNotice
+                document={state.document}
+                onRestored={(document) => setState({ kind: 'ready', document })}
+              />
+            )}
+            <p className="links">
+              {state.document.status === 'completed' && !state.document.deleted_at && (
+                <a className="button-link" href={routes.askAbout(state.document.id)}>
+                  <Icon name="ask" size={16} />
+                  Preguntar sobre este documento
+                </a>
+              )}
+              <a
+                className="button-link secondary"
+                href={documentFileUrl(state.document.id)}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Icon name="external" size={16} />
+                Ver PDF original
+              </a>
+            </p>
+            <dl className="metadata">
+              <dt>Estado</dt>
+              <dd>
+                <StatusBadge status={state.document.status} />
+              </dd>
+              {state.document.error_message && (
+                <>
+                  <dt>Error</dt>
+                  <dd>{state.document.error_message}</dd>
+                </>
+              )}
+              <dt>Tamaño</dt>
+              <dd>{formatBytes(state.document.size_bytes)}</dd>
+              <dt>Subido</dt>
+              <dd>{formatDate(state.document.created_at)}</dd>
+              <dt>Procesado</dt>
+              <dd>{state.document.processed_at ? formatDate(state.document.processed_at) : '—'}</dd>
+              <dt>Identificador</dt>
+              <dd>
+                <code>{state.document.id}</code>
+              </dd>
+            </dl>
+            <Summary
+              document={state.document}
+              onUpdated={(document) => setState({ kind: 'ready', document })}
+            />
+          </>
+        )}
+      </section>
+    </div>
   )
 }
 
@@ -131,7 +147,10 @@ function Summary({
 
   return (
     <section aria-labelledby="summary-title">
-      <h3 id="summary-title">Resumen</h3>
+      <h3 id="summary-title">
+        <Icon name="sparkles" size={18} />
+        Resumen
+      </h3>
       {document.summary ? (
         <>
           {/* Generado por un LLM: se muestra como texto, nunca como HTML (ver AskPage). */}
@@ -144,7 +163,12 @@ function Summary({
             No hay resumen disponible: el proveedor de IA no estaba configurado o falló.
           </p>
           {canRegenerate && (
-            <button type="button" disabled={busy} onClick={() => void regenerate()}>
+            <button
+              type="button"
+              className="secondary"
+              disabled={busy}
+              onClick={() => void regenerate()}
+            >
               {busy ? 'Generando…' : 'Generar resumen'}
             </button>
           )}
@@ -189,7 +213,13 @@ function TrashNotice({
         Este documento está en la <a href={routes.trash}>papelera</a>: no aparece en la biblioteca
         ni en las respuestas.
       </p>
-      <button type="button" disabled={busy} onClick={() => void restore()}>
+      <button
+        type="button"
+        className="secondary small"
+        disabled={busy}
+        onClick={() => void restore()}
+      >
+        <Icon name="restore" size={16} />
         {busy ? 'Restaurando…' : 'Restaurar'}
       </button>
       {error && (

@@ -3,6 +3,7 @@ import { ApiError, uploadDocument } from '../api/client'
 import { MAX_UPLOAD_MB } from '../config'
 import type { DocumentRead, Folder } from '../types/api'
 import { validateFile } from '../validation'
+import { Icon } from './Icon'
 
 type UploadState =
   | { kind: 'idle' }
@@ -47,7 +48,10 @@ export function UploadForm({ folder, onUploaded }: { folder?: Folder; onUploaded
 
   return (
     <section className="card" aria-labelledby="upload-title">
-      <h2 id="upload-title">Subir documento</h2>
+      <h2 id="upload-title">
+        <Icon name="upload" />
+        Subir documento
+      </h2>
       {/* El <label> envuelve el input: es clicable, accesible por teclado y acepta arrastrar. */}
       <label
         className={`dropzone${dragging ? ' dropzone-active' : ''}${uploading ? ' dropzone-busy' : ''}`}
@@ -69,6 +73,9 @@ export function UploadForm({ folder, onUploaded }: { folder?: Folder; onUploaded
             if (file) void handleFile(file)
           }}
         />
+        <span className="dropzone-icon">
+          <Icon name="upload" size={22} />
+        </span>
         <span className="dropzone-text">
           Arrastra un PDF aquí o <span className="link-like">elige un archivo</span>
         </span>

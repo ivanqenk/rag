@@ -16,11 +16,18 @@ extracto. Si los documentos no contienen la respuesta, lo dice en lugar de inven
 | Biblioteca | Pregunta con fuentes |
 |---|---|
 | ![Biblioteca con carpetas y documentos procesados](docs/images/biblioteca.png) | ![Respuesta con la fuente: documento, página y extracto](docs/images/pregunta.png) |
-| **Detalle con resumen** | **Sin evidencia (modo oscuro)** |
+| **Detalle con resumen (tema oscuro)** | **Sin evidencia (tema oscuro)** |
 | ![Detalle de un documento con su resumen](docs/images/documento.png) | ![Aviso de que los documentos no contienen la respuesta](docs/images/sin-evidencia.png) |
+
+<img src="docs/images/movil.png" alt="La pantalla de preguntar en un móvil" width="260" align="right">
+
+**Adaptable:** en el móvil la navegación ocupa una fila, las carpetas se deslizan en
+horizontal y las tablas se convierten en tarjetas.
 
 <sub>Capturas con documentos ficticios del conjunto de evaluación y OpenAI
 (`text-embedding-3-small` + `gpt-6-luna`): la respuesta y el resumen los redacta el LLM.</sub>
+
+<br clear="right">
 
 ## Inicio rápido (Docker)
 
@@ -410,6 +417,10 @@ Metodología, resultados e interpretación en [`docs/rag-evaluation.md`](docs/ra
   evidencia suficiente.
 - **Papelera:** restaurar, eliminar definitivamente y vaciar, con la fecha de borrado automático.
 - **Tema claro u oscuro** a elección (claro por defecto), recordado en el navegador.
+- **Diseño adaptable:** en pantallas anchas la biblioteca muestra las carpetas en una columna
+  lateral; en el móvil la navegación ocupa una fila, las carpetas se deslizan en horizontal y
+  las tablas se convierten en tarjetas. Iconos SVG propios (sin fuentes ni recursos externos,
+  que la CSP bloquearía) y animaciones desactivadas si el sistema pide reducir el movimiento.
 - **Estados** de carga, vacío, error y éxito en todas las pantallas; errores comprensibles, sin
   trazas ni detalles internos.
 - **Accesibilidad básica:** etiquetas en los controles, navegación por teclado, foco visible,

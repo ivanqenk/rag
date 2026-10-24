@@ -1,3 +1,4 @@
+import { Icon } from './components/Icon'
 import { ThemeToggle } from './components/ThemeToggle'
 import { AskPage } from './pages/AskPage'
 import { DocumentPage } from './pages/DocumentPage'
@@ -11,22 +12,37 @@ export default function App() {
   return (
     <>
       <header className="app-header">
-        <h1>Document Intelligence</h1>
-        <nav aria-label="Principal">
-          <a
-            href={routes.library}
-            aria-current={route.name === 'library' || route.name === 'document' ? 'page' : undefined}
-          >
-            Biblioteca
-          </a>
-          <a href={routes.ask} aria-current={route.name === 'ask' ? 'page' : undefined}>
-            Preguntar
-          </a>
-          <a href={routes.trash} aria-current={route.name === 'trash' ? 'page' : undefined}>
-            Papelera
-          </a>
-        </nav>
-        <ThemeToggle />
+        <div className="header-inner">
+          <h1 className="brand">
+            <span className="brand-mark">
+              <Icon name="sparkles" size={20} />
+            </span>
+            <span>
+              Document Intelligence
+              <small>Pregunta a tus documentos</small>
+            </span>
+          </h1>
+          <nav aria-label="Principal" className="main-nav">
+            <a
+              href={routes.library}
+              aria-current={
+                route.name === 'library' || route.name === 'document' ? 'page' : undefined
+              }
+            >
+              <Icon name="library" />
+              Biblioteca
+            </a>
+            <a href={routes.ask} aria-current={route.name === 'ask' ? 'page' : undefined}>
+              <Icon name="ask" />
+              Preguntar
+            </a>
+            <a href={routes.trash} aria-current={route.name === 'trash' ? 'page' : undefined}>
+              <Icon name="trash" />
+              Papelera
+            </a>
+          </nav>
+          <ThemeToggle />
+        </div>
       </header>
       <main>
         {route.name === 'library' && (

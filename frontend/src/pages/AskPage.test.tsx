@@ -73,7 +73,7 @@ describe('AskPage', () => {
 
     await ask('¿De qué trata?')
 
-    expect(await screen.findByText(', resumen del documento')).toBeInTheDocument()
+    expect(await screen.findByText('Resumen del documento')).toBeInTheDocument()
     expect(screen.queryByText(/página/)).not.toBeInTheDocument()
   })
 

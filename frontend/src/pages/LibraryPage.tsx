@@ -10,6 +10,7 @@ import {
   renameFolder,
   reprocessDocument,
 } from '../api/client'
+import { Icon } from '../components/Icon'
 import { StatusBadge } from '../components/StatusBadge'
 import { UploadForm } from '../components/UploadForm'
 import { formatBytes, formatDate } from '../format'
@@ -78,133 +79,163 @@ export function LibraryPage({ folderId }: { folderId?: string }) {
   const unknownFolder = state.kind === 'ready' && folderId !== undefined && !current
 
   return (
-    <>
-      <FolderBar
-        folders={folders}
-        current={current}
-        busy={busyId !== null}
-        onAction={(action) => runAction('folders', action)}
-      />
+    <div className="library-layout">
+      <aside className="library-aside">
+        <FolderBar
+          folders={folders}
+          current={current}
+          busy={busyId !== null}
+          onAction={(action) => runAction('folders', action)}
+        />
+      </aside>
 
-      {unknownFolder ? (
-        <section className="card">
-          <p className="error" role="alert">
-            La carpeta no existe.
-          </p>
-          <a href={routes.library}>Ver todos los documentos</a>
-        </section>
-      ) : (
-        <UploadForm folder={current} onUploaded={() => void load()} />
-      )}
+      <div className="library-main">
+        {unknownFolder ? (
+          <section className="card">
+            <p className="error" role="alert">
+              La carpeta no existe.
+            </p>
+            <a href={routes.library}>Ver todos los documentos</a>
+          </section>
+        ) : (
+          <UploadForm folder={current} onUploaded={() => void load()} />
+        )}
 
-      <section className="card" aria-labelledby="library-title">
-        <h2 id="library-title">{current ? current.name : 'Biblioteca'}</h2>
-        {actionError && (
-          <p className="error" role="alert">
-            {actionError}
-          </p>
-        )}
-        {state.kind === 'loading' && <p className="info">Cargando documentos…</p>}
-        {state.kind === 'error' && (
-          <div role="alert">
-            <p className="error">{state.message}</p>
-            <button type="button" onClick={() => void load()}>
-              Reintentar
-            </button>
-          </div>
-        )}
-        {state.kind === 'ready' && state.documents.length === 0 && (
-          <p className="empty">
-            {current
-              ? 'Esta carpeta está vacía. Sube un PDF o mueve aquí un documento.'
-              : 'Aún no hay documentos. Sube un PDF para empezar.'}
-          </p>
-        )}
-        {state.kind === 'ready' && state.documents.length > 0 && (
-          <>
-            <table>
-              <caption className="visually-hidden">
+        <section className="card" aria-labelledby="library-title">
+          <div className="card-header">
+            <h2 id="library-title">
+              <Icon name={current ? 'folder' : 'library'} />
+              {current ? current.name : 'Biblioteca'}
+            </h2>
+            {state.kind === 'ready' && (
+              <span className="hint">
                 {state.total} documento{state.total === 1 ? '' : 's'}
-              </caption>
-              <thead>
-                <tr>
-                  <th scope="col">Nombre</th>
-                  <th scope="col">Carpeta</th>
-                  <th scope="col">Tamaño</th>
-                  <th scope="col">Subido</th>
-                  <th scope="col">Estado</th>
-                  <th scope="col">
-                    <span className="visually-hidden">Acciones</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {state.documents.map((document) => (
-                  <tr key={document.id}>
-                    <td>
-                      <a href={routes.document(document.id)}>{document.original_filename}</a>
-                      {document.status === 'failed' && document.error_message && (
-                        <div className="row-error">{document.error_message}</div>
-                      )}
-                    </td>
-                    <td>
-                      <select
-                        aria-label={`Carpeta de ${document.original_filename}`}
-                        value={document.folder_id ?? ''}
-                        disabled={busyId === document.id}
-                        onChange={(event) => {
-                          const target = event.target.value || null
-                          void runAction(document.id, () => moveDocument(document.id, target))
-                        }}
-                      >
-                        <option value="">Sin carpeta</option>
-                        {state.folders.map((folder) => (
-                          <option key={folder.id} value={folder.id}>
-                            {folder.name}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>{formatBytes(document.size_bytes)}</td>
-                    <td>{formatDate(document.created_at)}</td>
-                    <td>
-                      <StatusBadge status={document.status} />
-                    </td>
-                    <td className="actions">
-                      {document.status === 'failed' && (
-                        <button
-                          type="button"
-                          disabled={busyId === document.id}
-                          onClick={() =>
-                            void runAction(document.id, () => reprocessDocument(document.id))
-                          }
-                        >
-                          Reintentar
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className="danger"
-                        disabled={busyId === document.id}
-                        aria-label={`Eliminar ${document.original_filename}`}
-                        onClick={() => onDelete(document)}
-                      >
-                        Eliminar
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {state.total > state.documents.length && (
-              <p className="hint">
-                Mostrando {state.documents.length} de {state.total} documentos.
-              </p>
+              </span>
             )}
-          </>
-        )}
-      </section>
-    </>
+          </div>
+          {actionError && (
+            <p className="error" role="alert">
+              {actionError}
+            </p>
+          )}
+          {state.kind === 'loading' && <p className="info">Cargando documentos…</p>}
+          {state.kind === 'error' && (
+            <div role="alert">
+              <p className="error">{state.message}</p>
+              <button type="button" onClick={() => void load()}>
+                Reintentar
+              </button>
+            </div>
+          )}
+          {state.kind === 'ready' && state.documents.length === 0 && (
+            <p className="empty">
+              <Icon name="file" size={36} />
+              {current
+                ? 'Esta carpeta está vacía. Sube un PDF o mueve aquí un documento.'
+                : 'Aún no hay documentos. Sube un PDF para empezar.'}
+            </p>
+          )}
+          {state.kind === 'ready' && state.documents.length > 0 && (
+            <>
+              <div className="table-wrap">
+                <table>
+                  <caption className="visually-hidden">
+                    {state.total} documento{state.total === 1 ? '' : 's'}
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Nombre</th>
+                      <th scope="col">Carpeta</th>
+                      <th scope="col">Tamaño</th>
+                      <th scope="col">Subido</th>
+                      <th scope="col">Estado</th>
+                      <th scope="col">
+                        <span className="visually-hidden">Acciones</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {state.documents.map((document) => (
+                      <tr key={document.id}>
+                        <td className="name">
+                          <a href={routes.document(document.id)}>
+                            <Icon name="file" />
+                            {document.original_filename}
+                          </a>
+                          {document.status === 'failed' && document.error_message && (
+                            <div className="row-error">{document.error_message}</div>
+                          )}
+                        </td>
+                        <td data-label="Carpeta">
+                          <select
+                            aria-label={`Carpeta de ${document.original_filename}`}
+                            value={document.folder_id ?? ''}
+                            disabled={busyId === document.id}
+                            onChange={(event) => {
+                              const target = event.target.value || null
+                              void runAction(document.id, () => moveDocument(document.id, target))
+                            }}
+                          >
+                            <option value="">Sin carpeta</option>
+                            {state.folders.map((folder) => (
+                              <option key={folder.id} value={folder.id}>
+                                {folder.name}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="muted" data-label="Tamaño">
+                          {formatBytes(document.size_bytes)}
+                        </td>
+                        <td className="muted" data-label="Subido">
+                          {formatDate(document.created_at)}
+                        </td>
+                        <td data-label="Estado">
+                          <StatusBadge status={document.status} />
+                        </td>
+                        <td className="actions">
+                          {document.status === 'failed' && (
+                            <button
+                              type="button"
+                              className="secondary small"
+                              aria-label="Reintentar"
+                              title="Reintentar"
+                              disabled={busyId === document.id}
+                              onClick={() =>
+                                void runAction(document.id, () => reprocessDocument(document.id))
+                              }
+                            >
+                              <Icon name="refresh" size={16} />
+                              <span className="btn-label">Reintentar</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="danger small"
+                            disabled={busyId === document.id}
+                            aria-label={`Eliminar ${document.original_filename}`}
+                            title="Eliminar"
+                            onClick={() => onDelete(document)}
+                          >
+                            <Icon name="trash" size={16} />
+                            <span className="btn-label">Eliminar</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {state.total > state.documents.length && (
+                <p className="hint">
+                  Mostrando {state.documents.length} de {state.total} documentos.
+                </p>
+              )}
+            </>
+          )}
+        </section>
+      </div>
+    </div>
   )
 }
 
@@ -246,10 +277,14 @@ function FolderBar({
 
   return (
     <section className="card" aria-labelledby="folders-title">
-      <h2 id="folders-title">Carpetas</h2>
+      <h2 id="folders-title">
+        <Icon name="folder" />
+        Carpetas
+      </h2>
       <nav aria-label="Carpetas" className="folders">
         <a href={routes.library} aria-current={current ? undefined : 'page'}>
-          Todos los documentos
+          <Icon name="library" />
+          <span className="folder-name">Todos</span>
         </a>
         {folders.map((folder) => (
           <a
@@ -257,20 +292,27 @@ function FolderBar({
             href={routes.folder(folder.id)}
             aria-current={folder.id === current?.id ? 'page' : undefined}
           >
-            {folder.name} <span className="count">{folder.document_count}</span>
+            <Icon name="folder" />
+            <span className="folder-name">{folder.name}</span>{' '}
+            <span className="count">{folder.document_count}</span>
           </a>
         ))}
       </nav>
       {current && (
-        <p className="links">
-          <a href={routes.askFolder(current.id)}>Preguntar a esta carpeta</a>
+        <div className="folder-actions">
+          <a href={routes.askFolder(current.id)}>
+            <Icon name="ask" size={16} />
+            Preguntar a esta carpeta
+          </a>
           <button type="button" className="link-button" onClick={() => onRename(current)}>
+            <Icon name="pencil" size={16} />
             Renombrar
           </button>
           <button type="button" className="link-button danger" onClick={() => onDelete(current)}>
+            <Icon name="trash" size={16} />
             Eliminar carpeta
           </button>
-        </p>
+        </div>
       )}
       <form className="inline-form" onSubmit={onCreate}>
         <label htmlFor="folder-name" className="visually-hidden">
@@ -284,8 +326,13 @@ function FolderBar({
           value={name}
           onChange={(event) => setName(event.target.value)}
         />
-        <button type="submit" disabled={busy || !name.trim()}>
-          Crear carpeta
+        <button
+          type="submit"
+          aria-label="Crear carpeta"
+          title="Crear carpeta"
+          disabled={busy || !name.trim()}
+        >
+          <Icon name="plus" />
         </button>
       </form>
     </section>

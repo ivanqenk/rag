@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { ApiError, askQuestion, documentFileUrl, getDocument, listFolders } from '../api/client'
+import { Icon } from '../components/Icon'
 import { routes } from '../router'
 import type { Folder, QueryResponse } from '../types/api'
 
@@ -95,9 +96,10 @@ export function AskPage({ documentId, folderId }: { documentId?: string; folderI
   const scopeBlocked = (documentId !== undefined && scope.kind !== 'ready') || missingFolder
 
   return (
-    <>
+    <div className="narrow">
       <section className="card" aria-labelledby="ask-title">
         <h2 id="ask-title">
+          <Icon name="ask" />
           {documentId ? 'Preguntar sobre un documento' : 'Preguntar a tus documentos'}
         </h2>
         {documentId && (
@@ -181,6 +183,7 @@ export function AskPage({ documentId, folderId }: { documentId?: string; folderI
               type="submit"
               disabled={loading || !question.trim() || !validPage || scopeBlocked}
             >
+              <Icon name="search" size={16} />
               {loading ? 'Buscando…' : 'Preguntar'}
             </button>
           </div>
@@ -196,7 +199,7 @@ export function AskPage({ documentId, folderId }: { documentId?: string; folderI
         )}
         {state.kind === 'answered' && <Answer response={state.response} />}
       </div>
-    </>
+    </div>
   )
 }
 
@@ -204,7 +207,10 @@ function Answer({ response }: { response: QueryResponse }) {
   if (response.insufficient_evidence) {
     return (
       <section className="card notice" aria-label="Respuesta">
-        <h3>Sin evidencia suficiente</h3>
+        <h3>
+          <Icon name="alert" />
+          Sin evidencia suficiente
+        </h3>
         <p>{response.answer}</p>
         <p className="hint">
           Prueba a reformular la pregunta o sube documentos que contengan esa información.
@@ -214,8 +220,11 @@ function Answer({ response }: { response: QueryResponse }) {
   }
 
   return (
-    <section className="card" aria-label="Respuesta">
-      <h3>Respuesta</h3>
+    <section className="card answer-card" aria-label="Respuesta">
+      <h3>
+        <Icon name="sparkles" />
+        Respuesta
+      </h3>
       {/*
         Seguridad: la respuesta la genera un LLM a partir de documentos que podrían ser
         maliciosos. Se muestra como TEXTO (React escapa el contenido); nunca con
@@ -224,28 +233,29 @@ function Answer({ response }: { response: QueryResponse }) {
       */}
       <p className="answer">{response.answer}</p>
 
-      <h4>Fuentes</h4>
+      <h4 className="sources-title">Fuentes</h4>
       <ol className="sources">
         {response.sources.map((source) => (
           <li key={source.chunk_id ?? `summary-${source.document_id}`}>
-            <a href={routes.document(source.document_id)}>{source.filename}</a>
-            {source.source_type === 'summary' ? (
-              <span>, resumen del documento</span>
-            ) : (
-              source.page_number !== null && (
-                <span>
-                  ,{' '}
+            <div className="source-head">
+              <a href={routes.document(source.document_id)}>{source.filename}</a>
+              {source.source_type === 'summary' ? (
+                <span className="page-chip">Resumen del documento</span>
+              ) : (
+                source.page_number !== null && (
                   <a
+                    className="page-chip"
                     href={documentFileUrl(source.document_id, source.page_number)}
                     target="_blank"
                     rel="noopener noreferrer"
                     aria-label={`Abrir ${source.filename} en la página ${source.page_number}`}
                   >
                     página {source.page_number}
+                    <Icon name="external" size={13} />
                   </a>
-                </span>
-              )
-            )}
+                )
+              )}
+            </div>
             <blockquote>{source.excerpt}</blockquote>
           </li>
         ))}

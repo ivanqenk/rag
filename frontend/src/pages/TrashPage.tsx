@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import {
-  ApiError,
-  deletePermanently,
-  emptyTrash,
-  listTrash,
-  restoreDocument,
-} from '../api/client'
+import { ApiError, deletePermanently, emptyTrash, listTrash, restoreDocument } from '../api/client'
+import { Icon } from '../components/Icon'
 import { formatBytes, formatDate } from '../format'
 import type { DocumentRead } from '../types/api'
 
@@ -80,7 +75,17 @@ export function TrashPage() {
 
   return (
     <section className="card" aria-labelledby="trash-title">
-      <h2 id="trash-title">Papelera</h2>
+      <div className="card-header">
+        <h2 id="trash-title">
+          <Icon name="trash" />
+          Papelera
+        </h2>
+        {state.kind === 'ready' && state.documents.length > 0 && (
+          <button type="button" className="danger small" disabled={busy} onClick={onEmpty}>
+            Vaciar papelera
+          </button>
+        )}
+      </div>
       {state.kind === 'ready' && (
         <p className="hint">
           Los documentos eliminados se conservan {state.retentionDays} días: puedes restaurarlos
@@ -102,62 +107,75 @@ export function TrashPage() {
         </div>
       )}
       {state.kind === 'ready' && state.documents.length === 0 && (
-        <p className="empty">La papelera está vacía.</p>
+        <p className="empty">
+          <Icon name="trash" size={36} />
+          La papelera está vacía.
+        </p>
       )}
       {state.kind === 'ready' && state.documents.length > 0 && (
         <>
-          <table>
-            <caption className="visually-hidden">
-              {state.total} documento{state.total === 1 ? '' : 's'} en la papelera
-            </caption>
-            <thead>
-              <tr>
-                <th scope="col">Nombre</th>
-                <th scope="col">Tamaño</th>
-                <th scope="col">Eliminado</th>
-                <th scope="col">Se borrará</th>
-                <th scope="col">
-                  <span className="visually-hidden">Acciones</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {state.documents.map((document) => (
-                <tr key={document.id}>
-                  <td>{document.original_filename}</td>
-                  <td>{formatBytes(document.size_bytes)}</td>
-                  <td>{document.deleted_at ? formatDate(document.deleted_at) : '—'}</td>
-                  <td>
-                    {document.deleted_at ? purgeDate(document.deleted_at, state.retentionDays) : '—'}
-                  </td>
-                  <td className="actions">
-                    <button
-                      type="button"
-                      disabled={busy}
-                      aria-label={`Restaurar ${document.original_filename}`}
-                      onClick={() => void runAction(() => restoreDocument(document.id))}
-                    >
-                      Restaurar
-                    </button>
-                    <button
-                      type="button"
-                      className="danger"
-                      disabled={busy}
-                      aria-label={`Eliminar definitivamente ${document.original_filename}`}
-                      onClick={() => onDeletePermanently(document)}
-                    >
-                      Eliminar definitivamente
-                    </button>
-                  </td>
+          <div className="table-wrap">
+            <table>
+              <caption className="visually-hidden">
+                {state.total} documento{state.total === 1 ? '' : 's'} en la papelera
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Nombre</th>
+                  <th scope="col">Tamaño</th>
+                  <th scope="col">Eliminado</th>
+                  <th scope="col">Se borrará</th>
+                  <th scope="col">
+                    <span className="visually-hidden">Acciones</span>
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-          <p>
-            <button type="button" className="danger" disabled={busy} onClick={onEmpty}>
-              Vaciar papelera
-            </button>
-          </p>
+              </thead>
+              <tbody>
+                {state.documents.map((document) => (
+                  <tr key={document.id}>
+                    <td className="name">
+                      <span className="file">
+                        <Icon name="file" />
+                        {document.original_filename}
+                      </span>
+                    </td>
+                    <td className="muted" data-label="Tamaño">
+                      {formatBytes(document.size_bytes)}
+                    </td>
+                    <td className="muted" data-label="Eliminado">
+                      {document.deleted_at ? formatDate(document.deleted_at) : '—'}
+                    </td>
+                    <td className="muted" data-label="Se borrará">
+                      {document.deleted_at
+                        ? purgeDate(document.deleted_at, state.retentionDays)
+                        : '—'}
+                    </td>
+                    <td className="actions">
+                      <button
+                        type="button"
+                        className="secondary small"
+                        disabled={busy}
+                        aria-label={`Restaurar ${document.original_filename}`}
+                        onClick={() => void runAction(() => restoreDocument(document.id))}
+                      >
+                        <Icon name="restore" size={16} />
+                        Restaurar
+                      </button>
+                      <button
+                        type="button"
+                        className="danger small"
+                        disabled={busy}
+                        aria-label={`Eliminar definitivamente ${document.original_filename}`}
+                        onClick={() => onDeletePermanently(document)}
+                      >
+                        Eliminar definitivamente
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
     </section>
