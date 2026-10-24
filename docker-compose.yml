@@ -13,7 +13,8 @@ services:
       - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # Crea la base de datos de pruebas la primera vez que se inicializa el volumen.
+      # Crea las bases de pruebas y del entorno completo la primera vez que se inicializa
+      # el volumen.
       - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U docintel -d docintel"]
@@ -33,7 +34,9 @@ services:
         required: false
     environment:
       # Dentro de la red de Compose la base de datos se llama "db", no "localhost".
-      DATABASE_URL: postgresql+psycopg://docintel:docintel@db:5432/docintel
+      # Base propia (no la de desarrollo): los PDF de este entorno viven en el volumen
+      # `storage`, no en backend/storage. Ver docker/postgres/init/02-create-docker-db.sql.
+      DATABASE_URL: postgresql+psycopg://docintel:docintel@db:5432/docintel_docker
       STORAGE_DIR: /data/storage
     volumes:
       - storage:/data/storage

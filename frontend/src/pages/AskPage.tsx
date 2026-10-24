@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { ApiError, askQuestion } from '../api/client'
+import { ApiError, askQuestion, documentFileUrl } from '../api/client'
 import { routes } from '../router'
 import type { QueryResponse } from '../types/api'
 
@@ -110,7 +110,19 @@ function Answer({ response }: { response: QueryResponse }) {
             {source.source_type === 'summary' ? (
               <span>, resumen del documento</span>
             ) : (
-              source.page_number !== null && <span>, página {source.page_number}</span>
+              source.page_number !== null && (
+                <span>
+                  ,{' '}
+                  <a
+                    href={documentFileUrl(source.document_id, source.page_number)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`Abrir ${source.filename} en la página ${source.page_number}`}
+                  >
+                    página {source.page_number}
+                  </a>
+                </span>
+              )
             )}
             <blockquote>{source.excerpt}</blockquote>
           </li>

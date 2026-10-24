@@ -1,9 +1,10 @@
 """Endpoints HTTP de documentos. Solo traducen HTTP <-> servicios; sin lógica de negocio."""
 
 from typing import Annotated
+from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
@@ -100,6 +101,40 @@ def get_document(document_id: UUID, repository: Repository) -> DocumentRead:
     return DocumentRead.model_validate(_get_or_404(repository, document_id))
 
 
+@router.get(
+    "/{document_id}/file",
+    response_class=Response,
+    responses={
+        200: {"content": {"application/pdf": {}}, "description": "El PDF original"},
+        404: {"description": "Documento o archivo no encontrado"},
+    },
+)
+def get_document_file(
+    document_id: UUID,
+    repository: Repository,
+    storage: Annotated[LocalFileStorage, Depends(get_storage)],
+) -> Response:
+    """Devuelve el PDF original para verlo en el navegador (admite `#page=N` en la URL)."""
+    document = _get_or_404(repository, document_id)
+    try:
+        data = storage.read(document.storage_key)
+    except FileNotFoundError:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "El archivo original no está disponible."
+        ) from None
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": _inline_disposition(document.original_filename),
+            # El tipo es fijo y la firma %PDF- se validó al subirlo: que el navegador no
+            # intente adivinar otro (p. ej. HTML).
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-cache",
+        },
+    )
+
+
 @router.delete(
     "/{document_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -136,6 +171,15 @@ def reprocess_document(
     document = _get_or_404(repository, document_id)
     document = ingestion.process_document(session, storage, embedder, llm, settings, document.id)
     return DocumentRead.model_validate(document)
+
+
+def _inline_disposition(filename: str) -> str:
+    """`inline` para que se abra en el navegador. `filename*` lleva el nombre en UTF-8
+    (RFC 6266); `filename` es la alternativa ASCII sin comillas ni barras invertidas."""
+    ascii_name = filename.encode("ascii", "ignore").decode().replace('"', "").replace("\\", "")
+    return (
+        f"inline; filename=\"{ascii_name or 'documento.pdf'}\"; filename*=UTF-8''{quote(filename)}"
+    )
 
 
 def _get_or_404(repository: DocumentRepository, document_id: UUID) -> Document:

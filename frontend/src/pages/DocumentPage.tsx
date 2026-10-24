@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ApiError, getDocument, reprocessDocument } from '../api/client'
+import { ApiError, documentFileUrl, getDocument, reprocessDocument } from '../api/client'
 import { StatusBadge } from '../components/StatusBadge'
 import { formatBytes, formatDate } from '../format'
 import { routes } from '../router'
@@ -70,6 +70,11 @@ export function DocumentPage({ id }: { id: string }) {
               <code>{state.document.id}</code>
             </dd>
           </dl>
+          <p>
+            <a href={documentFileUrl(state.document.id)} target="_blank" rel="noopener noreferrer">
+              Ver PDF original
+            </a>
+          </p>
           <Summary
             document={state.document}
             onUpdated={(document) => setState({ kind: 'ready', document })}

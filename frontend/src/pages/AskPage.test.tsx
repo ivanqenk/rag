@@ -39,7 +39,10 @@ describe('AskPage', () => {
       'href',
       `#/documentos/${SOURCE.document_id}`,
     )
-    expect(screen.getByText(', página 3')).toBeInTheDocument()
+    const pageLink = screen.getByRole('link', { name: 'Abrir manual.pdf en la página 3' })
+    expect(pageLink).toHaveAttribute('href', `/api/v1/documents/${SOURCE.document_id}/file#page=3`)
+    expect(pageLink).toHaveAttribute('target', '_blank')
+    expect(pageLink).toHaveAttribute('rel', 'noopener noreferrer')
     expect(screen.getByText(SOURCE.excerpt)).toBeInTheDocument()
     // La pregunta se envía sin espacios sobrantes.
     expect(JSON.parse(fetchSpy.mock.calls[0][1]?.body as string)).toEqual({

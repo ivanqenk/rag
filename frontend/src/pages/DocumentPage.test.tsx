@@ -19,6 +19,17 @@ describe('DocumentPage', () => {
     expect(container.querySelector('b')).toBeNull()
   })
 
+  it('enlaza el PDF original en una pestaña nueva', async () => {
+    const document = makeDocument()
+    mockFetch(jsonResponse(document))
+    render(<DocumentPage id={document.id} />)
+
+    const link = await screen.findByRole('link', { name: 'Ver PDF original' })
+    expect(link).toHaveAttribute('href', `/api/v1/documents/${document.id}/file`)
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+  })
+
   it('permite generar el resumen si no lo tiene', async () => {
     const fetchSpy = mockFetch(
       jsonResponse(makeDocument({ summary: null })),

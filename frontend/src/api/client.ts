@@ -68,6 +68,12 @@ export function deleteDocument(id: string): Promise<void> {
   return request<void>(`/api/v1/documents/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
+/** URL del PDF original. Los visores de PDF del navegador abren `#page=N` en esa página. */
+export function documentFileUrl(id: string, page?: number | null): string {
+  const url = `/api/v1/documents/${encodeURIComponent(id)}/file`
+  return page ? `${url}#page=${page}` : url
+}
+
 export function reprocessDocument(id: string): Promise<DocumentRead> {
   return request<DocumentRead>(`/api/v1/documents/${encodeURIComponent(id)}/reprocess`, {
     method: 'POST',

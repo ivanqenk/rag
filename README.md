@@ -48,13 +48,19 @@ docker compose up --build     # la primera vez tarda unos minutos
 Abre **<http://localhost:8080>** y comprueba el flujo principal:
 
 1. **Biblioteca** → sube un PDF con texto (no escaneado). Debe quedar en estado «Listo».
-2. Pulsa su nombre: verás sus datos y su **resumen**.
+2. Pulsa su nombre: verás sus datos, su **resumen** y el enlace **Ver PDF original**.
 3. **Preguntar** → haz una pregunta sobre su contenido. La respuesta muestra las fuentes con
-   página y extracto. Prueba también «¿de qué trata?» y una pregunta que el documento no
+   página y extracto (la página abre el PDF en ese punto). Prueba también «¿de qué trata?» y una pregunta que el documento no
    responda: debe decir que no hay evidencia suficiente.
 
 Para pararlo: `Ctrl+C` (o `docker compose down`). `docker compose down -v` borra también los
 documentos y la base de datos.
+
+Este entorno usa su propia base de datos (`docintel_docker`) y guarda los PDF en un volumen
+de Docker; el de desarrollo en local usa `docintel` y `backend/storage/`. Son independientes:
+un documento subido en uno no aparece en el otro. Si tu volumen de PostgreSQL es anterior a
+este cambio, crea la base una vez:
+`docker compose exec db psql -U docintel -c "CREATE DATABASE docintel_docker OWNER docintel"`.
 
 La especificación completa está en
 [`AI_Document_Intelligence_Platform_Spec.md`](AI_Document_Intelligence_Platform_Spec.md).
@@ -166,6 +172,7 @@ Para borrarlos por completo: `docker compose down -v`.
 | POST   | `/api/v1/documents`             | Sube un PDF (`multipart/form-data`, campo `file`) y lo procesa |
 | GET    | `/api/v1/documents`             | Lista paginada (`limit` 1–100, por defecto 20; `offset` ≥ 0), más recientes primero |
 | GET    | `/api/v1/documents/{id}`        | Metadatos y estado de un documento (`404` si no existe, `422` si el id no es UUID) |
+| GET    | `/api/v1/documents/{id}/file`   | El PDF original para verlo en el navegador (`#page=N` abre esa página) |
 | DELETE | `/api/v1/documents/{id}`        | Borra el documento, sus fragmentos, embeddings y el archivo (`204`) |
 | POST   | `/api/v1/documents/{id}/reprocess` | Vuelve a procesar (tras un fallo o un cambio de modelo de embeddings) |
 | POST   | `/api/v1/search`                | Búsqueda híbrida de fragmentos (sin LLM)                |

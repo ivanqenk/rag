@@ -227,3 +227,32 @@ def test_delete_removes_document_chunks_and_file(
 
 def test_delete_unknown_document_returns_404(client: TestClient) -> None:
     assert client.delete(f"/api/v1/documents/{UUID(int=0)}").status_code == 404
+
+
+def test_original_file_is_served_as_inline_pdf(client: TestClient) -> None:
+    pdf = make_pdf([LONG_TEXT])
+    document_id = upload(client, pdf, filename="Política año 2026.pdf")["body"]["id"]
+
+    response = client.get(f"/api/v1/documents/{document_id}/file")
+
+    assert response.status_code == 200
+    assert response.content == pdf
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    disposition = response.headers["content-disposition"]
+    assert disposition.startswith("inline;")
+    assert "filename*=UTF-8''Pol%C3%ADtica%20a%C3%B1o%202026.pdf" in disposition
+
+
+def test_original_file_returns_404_for_unknown_or_missing_files(
+    client: TestClient, storage_dir: Path
+) -> None:
+    assert client.get(f"/api/v1/documents/{UUID(int=0)}/file").status_code == 404
+
+    document_id = upload(client, make_pdf([LONG_TEXT]))["body"]["id"]
+    for path in stored_files(storage_dir):
+        path.unlink()
+
+    response = client.get(f"/api/v1/documents/{document_id}/file")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "El archivo original no está disponible."
