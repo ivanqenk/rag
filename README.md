@@ -212,16 +212,19 @@ curl -F "file=@/ruta/a/manual.pdf" http://localhost:8000/api/v1/documents
 
 | Respuesta | Cuándo |
 |-----------|--------|
-| `201` con `status: "completed"` | El texto se extrajo y fragmentó correctamente |
-| `201` con `status: "failed"` y `error_message` | El PDF es válido pero no se pudo procesar (p. ej. no tiene texto: PDF escaneado; OCR no soportado) |
+| `202` con `status: "pending"` | Archivo válido y guardado; se procesa en segundo plano (`PROCESSING_MODE=background`, por defecto). Consulta `GET /api/v1/documents/{id}` hasta que sea `completed` o `failed` |
+| `201` con `status: "completed"` | Con `PROCESSING_MODE=sync`: el texto se extrajo y fragmentó correctamente |
+| `201` con `status: "failed"` y `error_message` | Con `PROCESSING_MODE=sync`: el PDF es válido pero no se pudo procesar (p. ej. no tiene texto: PDF escaneado; OCR no soportado). En segundo plano, el documento acaba igual en `failed` |
 | `400` | Archivo vacío |
 | `413` | Supera `MAX_UPLOAD_SIZE_MB` (20 MB por defecto) |
 | `415` | No es un PDF (se comprueba la extensión **y** la firma `%PDF-` del contenido; el `Content-Type` del cliente se ignora) |
 | `422` | PDF dañado, protegido con contraseña, sin páginas o con más de `MAX_PDF_PAGES` |
 | `503` | El proveedor de embeddings no está configurado (falta `OPENAI_API_KEY`) |
 
-Cuando la subida se rechaza (4xx) no se guarda nada. El procesamiento es síncrono en el MVP:
-la respuesta llega cuando el documento ya está `completed` o `failed`.
+Cuando la subida se rechaza (4xx) no se guarda nada: la validación (tipo, tamaño, PDF dañado
+o cifrado) es inmediata en los dos modos. En segundo plano se procesan como mucho
+`PROCESSING_CONCURRENCY` documentos a la vez (1 por defecto), y los que quedan a medias si el
+servidor se reinicia se retoman al arrancar. El frontend consulta el estado y se actualiza solo.
 
 ### Cómo se procesa
 
@@ -476,8 +479,8 @@ Metodología, resultados e interpretación en [`docs/rag-evaluation.md`](docs/ra
 
 - **Sin autenticación, autorización ni rate limiting**: todos los documentos son visibles para
   cualquiera que acceda. No exponer a Internet.
-- **Procesamiento síncrono**: la subida espera a que termine el procesamiento; un PDF grande
-  con OpenAI puede tardar decenas de segundos. La Fase 8 lo mueve a una cola con un worker.
+- **Procesamiento en segundo plano dentro del backend** (hilos del mismo proceso): sirve para
+  una instancia; con varias réplicas haría falta una cola compartida (Fase 8: SQS + worker).
 - **PDF escaneados no soportados** (sin OCR): quedan `failed` con un mensaje explicativo.
   Tablas, columnas y figuras se extraen como texto plano, sin estructura.
 - **Preguntas de resumen detectadas con una heurística** de patrones; con varios documentos,

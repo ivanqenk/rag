@@ -46,18 +46,22 @@ sequenceDiagram
     I->>I: extensión + firma %PDF-, cifrado, nº de páginas
     I->>FS: guardar con nombre aleatorio
     I->>DB: documento "pending"
-    API->>I: process_document
+    API-->>U: 202 "pending" (PROCESSING_MODE=background)
+    API->>I: process_document (en segundo plano, máx. PROCESSING_CONCURRENCY a la vez)
     I->>DB: "processing"
     I->>I: extraer texto por página y fragmentar (1000/200)
     I->>E: embeddings por lotes
     I->>L: resumen (opcional: si falla, sigue)
     I->>DB: fragmentos + vectores + resumen + "completed" (una transacción)
-    API-->>U: 201 con el estado final
+    U->>API: GET /documents/{id} cada pocos segundos hasta "completed" o "failed"
 ```
 
-- **Síncrono en el MVP**: la respuesta llega con el documento ya `completed` o `failed`.
-  `process_document` solo necesita el id del documento, para que en la Fase 8 lo ejecute un
-  worker leyendo de una cola (SQS) sin cambiar su código.
+- **En segundo plano** (`services/processing.py`): la subida responde 202 en cuanto el archivo
+  está validado y guardado; el procesamiento sigue en un hilo del servidor, limitado por un
+  semáforo. Al arrancar se retoman los documentos que quedaron `pending` o `processing`.
+  `process_document` solo necesita el id del documento, así que en la Fase 8 lo puede ejecutar
+  un worker leyendo de una cola (SQS) sin cambiar su código. `PROCESSING_MODE=sync` mantiene el
+  comportamiento anterior (útil en scripts y pruebas).
 - **Atómico**: fragmentos, vectores y estado se confirman juntos. Las llamadas externas
   (embeddings, resumen) se hacen **antes** de escribir, sin transacción abierta.
 - **Fallos explicables**: `failed` con `error_code` y un mensaje apto para el usuario; el

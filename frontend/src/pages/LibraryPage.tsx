@@ -16,6 +16,7 @@ import { UploadForm } from '../components/UploadForm'
 import { formatBytes, formatDate } from '../format'
 import { routes } from '../router'
 import type { DocumentRead, Folder } from '../types/api'
+import { isProcessing, usePolling } from '../usePolling'
 
 type ListState =
   | { kind: 'loading' }
@@ -50,6 +51,11 @@ export function LibraryPage({ folderId }: { folderId?: string }) {
       cancelled = true
     }
   }, [folderId])
+
+  // Mientras algún documento se procesa en segundo plano, la lista se actualiza sola.
+  const anyProcessing =
+    state.kind === 'ready' && state.documents.some((document) => isProcessing(document.status))
+  usePolling(() => void load(), anyProcessing, 3000)
 
   async function runAction(id: string, action: () => Promise<unknown>): Promise<boolean> {
     setActionError(null)

@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from app.api import documents, folders, health, query, search, trash
 from app.core.config import get_settings
 from app.db.session import SessionLocal
+from app.services.processing import resume_unfinished
 from app.services.trash import purge_periodically
 
 # Uvicorn solo configura sus propios loggers; sin esto, los logs INFO de la aplicación
@@ -24,9 +25,17 @@ logging.basicConfig(
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Al arrancar lanza la purga periódica de la papelera; al parar la cancela."""
-    task = asyncio.create_task(purge_periodically(SessionLocal, get_settings()))
+    """Al arrancar: retoma los documentos que quedaron a medias y lanza la purga periódica de
+    la papelera. Al parar, cancela la purga."""
+    settings = get_settings()
+    resume = None
+    if settings.processing_mode == "background":
+        # En un hilo: procesar puede tardar y no debe retrasar el arranque. Se guarda la
+        # referencia para que el recolector de basura no descarte la tarea.
+        resume = asyncio.create_task(asyncio.to_thread(resume_unfinished, SessionLocal, settings))
+    task = asyncio.create_task(purge_periodically(SessionLocal, settings))
     yield
+    del resume
     task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await task

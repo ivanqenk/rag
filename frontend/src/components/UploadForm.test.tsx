@@ -30,6 +30,30 @@ describe('UploadForm', () => {
     expect((init!.body as FormData).get('file')).toBe(pdf)
   })
 
+  it('si se procesa en segundo plano, consulta el estado hasta que termina', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const pending = makeDocument({ status: 'pending', summary: null })
+    const fetchSpy = mockFetch(
+      jsonResponse(pending, 202),
+      jsonResponse({ ...pending, status: 'processing' }),
+      jsonResponse(makeDocument()),
+    )
+    const { onUploaded, input } = setup()
+
+    await userEvent.upload(input, pdf)
+    expect(await screen.findByText(/Procesando/)).toBeInTheDocument()
+    expect(onUploaded).toHaveBeenCalledTimes(1) // ya aparece en la lista como pendiente
+
+    await vi.advanceTimersByTimeAsync(2000) // sigue procesándose
+    expect(screen.getByText(/Procesando/)).toBeInTheDocument()
+    await vi.advanceTimersByTimeAsync(2000)
+
+    expect(await screen.findByText(/está listo para consultas/)).toBeInTheDocument()
+    expect(onUploaded).toHaveBeenCalledTimes(2)
+    expect(fetchSpy.mock.calls[1][0]).toBe(`/api/v1/documents/${pending.id}`)
+    vi.useRealTimers()
+  })
+
   it('explica por qué falló el procesamiento', async () => {
     mockFetch(
       jsonResponse(

@@ -1,13 +1,16 @@
 import { useRef, useState, type DragEvent } from 'react'
-import { ApiError, uploadDocument } from '../api/client'
+import { ApiError, getDocument, uploadDocument } from '../api/client'
 import { MAX_UPLOAD_MB } from '../config'
 import type { DocumentRead, Folder } from '../types/api'
+import { isProcessing, usePolling } from '../usePolling'
 import { validateFile } from '../validation'
 import { Icon } from './Icon'
 
 type UploadState =
   | { kind: 'idle' }
   | { kind: 'uploading'; filename: string }
+  // Subido; el servidor lo procesa en segundo plano y se consulta su estado.
+  | { kind: 'processing'; document: DocumentRead }
   | { kind: 'done'; document: DocumentRead }
   | { kind: 'error'; message: string }
 
@@ -26,7 +29,11 @@ export function UploadForm({ folder, onUploaded }: { folder?: Folder; onUploaded
     setState({ kind: 'uploading', filename: file.name })
     try {
       const document = await uploadDocument(file, folder?.id)
-      setState({ kind: 'done', document })
+      setState(
+        isProcessing(document.status)
+          ? { kind: 'processing', document }
+          : { kind: 'done', document },
+      )
       onUploaded()
     } catch (error) {
       const message = error instanceof ApiError ? error.message : 'No se pudo subir el archivo.'
@@ -43,6 +50,18 @@ export function UploadForm({ folder, onUploaded }: { folder?: Folder; onUploaded
     const file = event.dataTransfer.files[0]
     if (file) void handleFile(file)
   }
+
+  usePolling(() => {
+    if (state.kind !== 'processing') return
+    getDocument(state.document.id)
+      .then((document) => {
+        if (isProcessing(document.status)) return
+        setState({ kind: 'done', document })
+        onUploaded()
+      })
+      // Un fallo puntual de red no detiene la consulta: se reintenta en la siguiente vuelta.
+      .catch(() => undefined)
+  }, state.kind === 'processing')
 
   const uploading = state.kind === 'uploading'
 
@@ -79,14 +98,20 @@ export function UploadForm({ folder, onUploaded }: { folder?: Folder; onUploaded
         <span className="dropzone-text">
           Arrastra un PDF aquí o <span className="link-like">elige un archivo</span>
         </span>
-        <span className="hint">Máximo {MAX_UPLOAD_MB} MB. PDF con texto (los escaneados no son compatibles).</span>
+        <span className="hint">
+          Máximo {MAX_UPLOAD_MB} MB. PDF con texto (los escaneados no son compatibles).
+        </span>
         {folder && <span className="hint">Se guardará en «{folder.name}».</span>}
       </label>
 
       {/* aria-live anuncia los cambios de estado a los lectores de pantalla. */}
       <div aria-live="polite" className="status-area">
-        {state.kind === 'uploading' && (
-          <p className="info">Subiendo y procesando «{state.filename}»… puede tardar unos segundos.</p>
+        {state.kind === 'uploading' && <p className="info">Subiendo «{state.filename}»…</p>}
+        {state.kind === 'processing' && (
+          <p className="info">
+            «{state.document.original_filename}» subido. Procesando (texto, búsqueda y resumen)…
+            Puedes seguir usando la aplicación.
+          </p>
         )}
         {state.kind === 'done' && state.document.status === 'completed' && (
           <p className="success">«{state.document.original_filename}» está listo para consultas.</p>

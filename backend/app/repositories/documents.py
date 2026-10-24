@@ -86,6 +86,28 @@ class DocumentRepository:
     def list_all_trashed(self) -> list[Document]:
         return list(self._session.scalars(select(Document).where(Document.deleted_at.is_not(None))))
 
+    def mark_pending(self, document: Document) -> Document:
+        """En cola para (re)procesar: sin el error de un intento anterior."""
+        document.status = DocumentStatus.PENDING
+        document.error_code = None
+        document.error_message = None
+        self._session.commit()
+        self._session.refresh(document)
+        return document
+
+    def list_unfinished(self) -> list[Document]:
+        """Documentos que se quedaron a medias (p. ej. el servidor se reinició mientras se
+        procesaban), fuera de la papelera, los más antiguos primero."""
+        statement = (
+            select(Document)
+            .where(
+                Document.status.in_([DocumentStatus.PENDING, DocumentStatus.PROCESSING]),
+                Document.deleted_at.is_(None),
+            )
+            .order_by(Document.created_at)
+        )
+        return list(self._session.scalars(statement))
+
     def move(self, document: Document, folder_id: UUID | None) -> Document:
         document.folder_id = folder_id
         self._session.commit()

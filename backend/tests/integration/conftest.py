@@ -14,10 +14,10 @@ from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.exc import OperationalError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import Settings, get_settings
-from app.db.session import get_db
+from app.db.session import get_db, get_session_factory
 from app.main import app
 from app.services.embeddings import FakeEmbeddingProvider, get_embedding_provider
 from app.services.llm import FakeLLMProvider, get_llm_provider, get_optional_llm_provider
@@ -78,6 +78,9 @@ def settings(storage_dir: Path) -> Settings:
         # Calibrado para el proveedor falso con los textos de test_search.py: las consultas
         # relevantes dan >= 0.27 y las colisiones de hash entre palabras distintas <= 0.15.
         retrieval_min_score=0.2,
+        # La mayoría de las pruebas comprueban el resultado del procesamiento en la propia
+        # respuesta; el modo en segundo plano tiene sus pruebas (test_background_processing.py).
+        processing_mode="sync",
     )
 
 
@@ -104,6 +107,9 @@ def client(
             yield session
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_session_factory] = lambda: sessionmaker(
+        bind=engine, expire_on_commit=False
+    )
     app.dependency_overrides[get_settings] = lambda: settings
     # Nunca llamar a un proveedor real (de pago) desde la suite, aunque .env tenga una clave.
     app.dependency_overrides[get_embedding_provider] = lambda: embedder

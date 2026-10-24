@@ -11,6 +11,7 @@ import { StatusBadge } from '../components/StatusBadge'
 import { formatBytes, formatDate } from '../format'
 import { routes } from '../router'
 import type { DocumentRead } from '../types/api'
+import { isProcessing, usePolling } from '../usePolling'
 
 type DocumentState =
   | { kind: 'loading' }
@@ -41,6 +42,14 @@ export function DocumentPage({ id }: { id: string }) {
     }
   }, [id])
 
+  // Procesándose en segundo plano (recién subido o reprocesado): se consulta hasta que termine.
+  const processing = state.kind === 'ready' && isProcessing(state.document.status)
+  usePolling(() => {
+    getDocument(id)
+      .then((document) => setState({ kind: 'ready', document }))
+      .catch(() => undefined)
+  }, processing)
+
   return (
     <div className="narrow">
       <section className="card" aria-labelledby="document-title">
@@ -66,7 +75,12 @@ export function DocumentPage({ id }: { id: string }) {
                 onRestored={(document) => setState({ kind: 'ready', document })}
               />
             )}
-            <p className="links">
+            {processing && (
+            <p className="info" role="status">
+              Procesando el documento (texto, búsqueda y resumen)… Esta página se actualiza sola.
+            </p>
+          )}
+          <p className="links">
               {state.document.status === 'completed' && !state.document.deleted_at && (
                 <a className="button-link" href={routes.askAbout(state.document.id)}>
                   <Icon name="ask" size={16} />
@@ -136,7 +150,10 @@ function Summary({
     try {
       // Reprocesar vuelve a generar fragmentos, embeddings y resumen.
       const updated = await reprocessDocument(document.id)
-      if (!updated.summary) setError('No se pudo generar el resumen. Inténtalo más tarde.')
+      // En segundo plano el reprocesado aún no ha terminado: DocumentPage consulta el estado.
+      if (updated.status === 'completed' && !updated.summary) {
+        setError('No se pudo generar el resumen. Inténtalo más tarde.')
+      }
       onUpdated(updated)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'No se pudo generar el resumen.')

@@ -77,6 +77,13 @@ class Settings(BaseSettings):
     # el texto de sus fuentes y elimina las que no estén respaldadas (ver services/rag.py).
     rag_verify_answers: bool = True
 
+    # Procesamiento de los PDF subidos. "background": la subida responde enseguida (202) y el
+    # documento se procesa después; el cliente consulta su estado. "sync": la subida espera a
+    # que termine (útil en scripts y pruebas). Como mucho PROCESSING_CONCURRENCY a la vez, para
+    # no agotar la memoria ni los límites del proveedor de embeddings.
+    processing_mode: Literal["background", "sync"] = "background"
+    processing_concurrency: int = Field(default=1, ge=1, le=8)
+
     # Resumen automático de cada documento al procesarlo (para preguntas tipo "¿de qué
     # trata?"). Si el documento es más largo, se envían fragmentos repartidos por todo él.
     summary_max_input_chars: int = Field(default=12000, ge=1000)

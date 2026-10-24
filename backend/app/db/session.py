@@ -18,3 +18,9 @@ def get_db() -> Iterator[Session]:
     """Dependencia de FastAPI: abre una sesión por petición y la cierra al terminar."""
     with SessionLocal() as session:
         yield session
+
+
+def get_session_factory() -> sessionmaker[Session]:
+    """Dependencia de FastAPI para trabajos que siguen después de la respuesta (procesar un
+    documento en segundo plano): abren su propia sesión. Las pruebas la sustituyen."""
+    return SessionLocal

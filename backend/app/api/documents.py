@@ -4,16 +4,26 @@ from typing import Annotated
 from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Response, UploadFile, status
-from sqlalchemy.orm import Session
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import Settings, get_settings
-from app.db.session import get_db
+from app.db.session import get_db, get_session_factory
 from app.models.document import Document
 from app.repositories.documents import DocumentRepository, get_document_repository
 from app.repositories.folders import FolderRepository
 from app.schemas.document import DocumentPage, DocumentRead, DocumentUpdate
-from app.services import ingestion, trash
+from app.services import ingestion, processing, trash
 from app.services.embeddings import EmbeddingProvider, get_embedding_provider
 from app.services.llm import LLMProvider, get_optional_llm_provider
 from app.services.pdf_extraction import InvalidPdfError
@@ -25,6 +35,7 @@ Repository = Annotated[DocumentRepository, Depends(get_document_repository)]
 Embedder = Annotated[EmbeddingProvider, Depends(get_embedding_provider)]
 # Opcional: sin LLM configurado el documento se procesa igual, solo que sin resumen.
 OptionalLLM = Annotated[LLMProvider | None, Depends(get_optional_llm_provider)]
+SessionFactory = Annotated[sessionmaker[Session], Depends(get_session_factory)]
 
 MAX_PAGE_SIZE = 100
 
@@ -34,6 +45,7 @@ MAX_PAGE_SIZE = 100
     status_code=status.HTTP_201_CREATED,
     response_model=DocumentRead,
     responses={
+        202: {"description": "Recibido; se procesa en segundo plano (PROCESSING_MODE=background)"},
         400: {"description": "Archivo vacío"},
         404: {"description": "La carpeta indicada no existe"},
         413: {"description": "El archivo supera el tamaño máximo"},
@@ -44,6 +56,9 @@ MAX_PAGE_SIZE = 100
 )
 def upload_document(
     file: UploadFile,
+    response: Response,
+    background_tasks: BackgroundTasks,
+    session_factory: SessionFactory,
     session: Annotated[Session, Depends(get_db)],
     storage: Annotated[LocalFileStorage, Depends(get_storage)],
     embedder: Embedder,
@@ -53,8 +68,11 @@ def upload_document(
 ) -> DocumentRead:
     """Sube un PDF y lo procesa (extracción, fragmentación, embeddings y resumen).
 
-    Devuelve 201 aunque el procesamiento falle (p. ej. PDF sin texto): el documento queda
-    registrado con `status = "failed"` y un `error_message` explicativo.
+    Con PROCESSING_MODE=background (por defecto) responde 202 en cuanto el archivo está guardado
+    y validado, con `status = "pending"`; el cliente consulta `GET /documents/{id}` hasta que
+    sea `completed` o `failed`. Con `sync` espera y responde 201 con el estado final. Un fallo
+    de procesamiento (p. ej. PDF sin texto) no es un error HTTP: el documento queda `failed`
+    con un `error_message` explicativo.
     """
     max_bytes = settings.max_upload_size_bytes
     # Leemos como máximo un byte más del límite: suficiente para saber si lo supera
@@ -82,9 +100,17 @@ def upload_document(
     except InvalidPdfError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.message) from None
 
-    # Procesamiento síncrono en el MVP; en la Fase 8 esto será un mensaje a una cola.
-    document = ingestion.process_document(session, storage, embedder, llm, settings, document.id)
-    return DocumentRead.model_validate(document)
+    return _process(
+        document,
+        response,
+        background_tasks,
+        session,
+        session_factory,
+        storage,
+        embedder,
+        llm,
+        settings,
+    )
 
 
 @router.get("", response_model=DocumentPage)
@@ -186,6 +212,7 @@ def delete_document(
     "/{document_id}/reprocess",
     response_model=DocumentRead,
     responses={
+        202: {"description": "En cola; se procesa en segundo plano (PROCESSING_MODE=background)"},
         404: {"description": "Documento no encontrado"},
         409: {"description": "El documento está en la papelera"},
         503: {"description": "Proveedor de embeddings no configurado"},
@@ -193,6 +220,9 @@ def delete_document(
 )
 def reprocess_document(
     document_id: UUID,
+    response: Response,
+    background_tasks: BackgroundTasks,
+    session_factory: SessionFactory,
     repository: Repository,
     session: Annotated[Session, Depends(get_db)],
     storage: Annotated[LocalFileStorage, Depends(get_storage)],
@@ -200,10 +230,22 @@ def reprocess_document(
     llm: OptionalLLM,
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> DocumentRead:
-    """Vuelve a procesar un documento: tras un fallo, o tras cambiar de modelo de embeddings."""
+    """Vuelve a procesar un documento: tras un fallo, o tras cambiar de modelo de embeddings.
+    Mismo comportamiento que la subida según PROCESSING_MODE (202 + `pending`, o 201)."""
     document = _get_active_or_409(repository, document_id)
-    document = ingestion.process_document(session, storage, embedder, llm, settings, document.id)
-    return DocumentRead.model_validate(document)
+    if settings.processing_mode == "background":
+        document = repository.mark_pending(document)
+    return _process(
+        document,
+        response,
+        background_tasks,
+        session,
+        session_factory,
+        storage,
+        embedder,
+        llm,
+        settings,
+    )
 
 
 def _inline_disposition(filename: str) -> str:
@@ -213,6 +255,36 @@ def _inline_disposition(filename: str) -> str:
     return (
         f"inline; filename=\"{ascii_name or 'documento.pdf'}\"; filename*=UTF-8''{quote(filename)}"
     )
+
+
+def _process(
+    document: Document,
+    response: Response,
+    background_tasks: BackgroundTasks,
+    session: Session,
+    session_factory: sessionmaker[Session],
+    storage: LocalFileStorage,
+    embedder: EmbeddingProvider,
+    llm: LLMProvider | None,
+    settings: Settings,
+) -> DocumentRead:
+    """Procesa ya (sync, 201) o después de responder (background, 202)."""
+    if settings.processing_mode == "sync":
+        document = ingestion.process_document(
+            session, storage, embedder, llm, settings, document.id
+        )
+        return DocumentRead.model_validate(document)
+    background_tasks.add_task(
+        processing.process_in_background,
+        session_factory,
+        storage,
+        embedder,
+        llm,
+        settings,
+        document.id,
+    )
+    response.status_code = status.HTTP_202_ACCEPTED
+    return DocumentRead.model_validate(document)
 
 
 def _check_folder_exists(session: Session, folder_id: UUID) -> None:
