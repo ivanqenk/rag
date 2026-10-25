@@ -181,7 +181,9 @@ textarea, input[type='number'], input[type='text'], select {
 textarea { resize: vertical; min-height: 6rem; }
 textarea:focus, input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
 select { cursor: pointer; }
-.form-footer { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-top: 0.75rem; }
+.form-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 0.6rem 1rem; margin-top: 0.75rem; }
+.form-footer .hint { flex: 1 1 14rem; }
+.form-footer button { white-space: nowrap; }
 
 .dropzone {
   display: grid; gap: 0.35rem; place-items: center; text-align: center; font-weight: normal;
@@ -309,6 +311,17 @@ a.button-link.secondary:hover { background: var(--surface-2); color: var(--text)
 .segmented span { display: block; padding: 0.35rem 0.85rem; border-radius: 8px; color: var(--muted); }
 .segmented input:checked + span { background: var(--surface); color: var(--accent); box-shadow: var(--shadow); }
 .segmented input:focus-visible + span { outline: 3px solid var(--focus); outline-offset: 1px; }
+
+/* Conversación: cada turno es la pregunta del usuario y su respuesta. */
+.conversation { display: grid; gap: 1.25rem; }
+.turn { display: grid; gap: 0.5rem; scroll-margin-top: 5rem; }
+.turn-question {
+  justify-self: end; max-width: 85%; margin: 0; display: flex; gap: 0.5rem; align-items: flex-start;
+  padding: 0.6rem 0.9rem; border-radius: 14px 14px 4px 14px;
+  background: var(--accent); color: var(--accent-text); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.turn-question .icon { margin-top: 0.2rem; }
+.turn-standalone { justify-self: end; margin: 0; font-style: italic; }
 
 /* La respuesta del LLM se muestra como texto; pre-wrap conserva sus saltos de línea. */
 .answer { white-space: pre-wrap; font-size: 1.05rem; margin: 0; }

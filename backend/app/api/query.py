@@ -55,7 +55,14 @@ def query_documents(
 
     try:
         result = rag.answer_question(
-            session, embedder, llm, settings, question, request.to_scope(), request.answer_style
+            session,
+            embedder,
+            llm,
+            settings,
+            question,
+            request.to_scope(),
+            request.answer_style,
+            [(turn.question, turn.answer) for turn in request.history],
         )
     except (EmbeddingError, LLMError) as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, exc.message) from None
@@ -69,4 +76,5 @@ def query_documents(
         answer_style=request.answer_style,
         points=[PointItem(text=p.text, sources=p.source_indexes) for p in result.points],
         points_ordered=result.points_ordered,
+        standalone_question=result.standalone_question,
     )

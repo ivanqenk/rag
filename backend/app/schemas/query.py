@@ -35,12 +35,26 @@ class SearchScope(BaseModel):
 AnswerStyle = Literal["brief", "detailed"]
 
 
+class HistoryTurn(BaseModel):
+    """Un turno anterior de la conversación (lo guarda el navegador; el servidor no)."""
+
+    question: str = Field(min_length=1, max_length=1000)
+    answer: str = Field(max_length=4000)
+
+
 class QueryRequest(SearchScope):
     # La longitud máxima (MAX_QUERY_CHARS) se valida en el endpoint.
     question: str = Field(min_length=1, description="Pregunta en lenguaje natural")
     answer_style: AnswerStyle = Field(
         default="brief",
         description="brief: una o dos frases; detailed: resumen y puntos (numerados si son pasos)",
+    )
+    # Como mucho 3 turnos: suficiente para las preguntas de seguimiento y acota el costo.
+    history: list[HistoryTurn] = Field(
+        default_factory=list,
+        max_length=3,
+        description="Turnos anteriores, del más antiguo al más reciente, para entender "
+        "preguntas de seguimiento («¿y después?»)",
     )
 
 
@@ -74,4 +88,8 @@ class QueryResponse(BaseModel):
     )
     points_ordered: bool = Field(
         description="true si los puntos son pasos de un procedimiento (mostrar numerados)"
+    )
+    standalone_question: str | None = Field(
+        description="Cómo se entendió la pregunta a partir de la conversación (None si no "
+        "hubo historial o no cambió)"
     )

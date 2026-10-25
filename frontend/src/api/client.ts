@@ -151,10 +151,17 @@ export function reprocessDocument(id: string): Promise<DocumentRead> {
 /** Limita la pregunta a una carpeta, o a un documento y opcionalmente una de sus páginas. */
 export type QueryScope = { folderId: string } | { documentId: string; pageNumber?: number }
 
+/** Un turno anterior de la conversación (solo vive en el navegador). */
+export interface HistoryTurn {
+  question: string
+  answer: string
+}
+
 export function askQuestion(
   question: string,
   scope?: QueryScope,
   style: AnswerStyle = 'brief',
+  history: HistoryTurn[] = [],
 ): Promise<QueryResponse> {
   return request<QueryResponse>('/api/v1/query', {
     method: 'POST',
@@ -165,6 +172,7 @@ export function askQuestion(
       folder_id: scope && 'folderId' in scope ? scope.folderId : undefined,
       document_id: scope && 'documentId' in scope ? scope.documentId : undefined,
       page_number: scope && 'documentId' in scope ? scope.pageNumber : undefined,
+      history: history.length > 0 ? history : undefined,
     }),
   })
 }

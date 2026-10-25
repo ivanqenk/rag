@@ -137,3 +137,16 @@ def test_verifier_accepts_paraphrases_and_rejects_additions(llm: LLMProvider) ->
     print(result.supported)
 
     assert result.supported == {"A0": True, "A1": True, "A2": False, "A3": False, "A4": False}
+
+
+def test_rewrites_a_follow_up_without_adding_information(llm: LLMProvider) -> None:
+    history = [("¿Cuántos días de vacaciones tengo al año?", "Tienes 23 días laborables.")]
+
+    follow_up = llm.rewrite_question("¿Y con cuánta antelación las tengo que pedir?", history)
+    standalone = llm.rewrite_question("¿Qué es la extensión 4444?", history)
+    print(follow_up.question, "|", standalone.question)
+
+    assert "vacaciones" in follow_up.question.lower()
+    assert "15" not in follow_up.question  # no responde ni inventa el dato
+    assert "4444" in standalone.question
+    assert "vacaciones" not in standalone.question.lower()  # no la mezcla con la conversación

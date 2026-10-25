@@ -36,7 +36,14 @@ def test_evaluation_runs_over_the_whole_dataset(clean_engine: Engine, settings: 
     for name in ("citation_accuracy", "correct_abstention_rate", "false_abstention_rate"):
         assert 0 <= metrics[name] <= 1
     # Incluso con el buscador falso, las preguntas sin relación con los documentos se abstienen.
-    assert metrics["correct_abstention_rate"] == 1.0
+    # (No las de seguimiento: el reescritor falso les añade la pregunta anterior, que sí tiene
+    # palabras de los documentos.)
+    with_history = {q["id"] for q in dataset["questions"] if q.get("history")}
+    unanswerable = [
+        q for q in report.questions if q.expected_abstention and q.id not in with_history
+    ]
+    assert unanswerable
+    assert all(q.abstained for q in unanswerable)
     assert metrics["total_cost_usd"] == 0
 
 

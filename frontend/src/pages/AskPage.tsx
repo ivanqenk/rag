@@ -1,5 +1,12 @@
-import { useEffect, useState, type FormEvent } from 'react'
-import { ApiError, askQuestion, documentFileUrl, getDocument, listFolders } from '../api/client'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import {
+  ApiError,
+  askQuestion,
+  documentFileUrl,
+  getDocument,
+  listFolders,
+  type HistoryTurn,
+} from '../api/client'
 import { Icon } from '../components/Icon'
 import { routes } from '../router'
 import type { AnswerStyle, Folder, QueryResponse } from '../types/api'
@@ -13,14 +20,26 @@ const STYLES: Array<{ value: AnswerStyle; label: string; hint: string }> = [
   },
 ]
 
+// Turnos anteriores que se envían para entender preguntas de seguimiento (el backend acepta 3).
+const HISTORY_TURNS = 3
+
+interface Turn {
+  question: string
+  response: QueryResponse
+}
+
+/** El texto de una respuesta tal como se resume para la conversación. */
+function answerText(response: QueryResponse): string {
+  return [response.answer, ...response.points.map((point) => point.text)]
+    .filter(Boolean)
+    .join(' ')
+    .slice(0, 4000)
+}
+
 // Debe coincidir con MAX_QUERY_CHARS del backend.
 const MAX_QUESTION_CHARS = 1000
 
-type AskState =
-  | { kind: 'idle' }
-  | { kind: 'loading' }
-  | { kind: 'answered'; response: QueryResponse }
-  | { kind: 'error'; message: string }
+type AskState = { kind: 'idle' } | { kind: 'loading' } | { kind: 'error'; message: string }
 
 // Pregunta limitada a un documento (desde su página de detalle): solo hace falta su nombre.
 type ScopeState =
@@ -37,6 +56,14 @@ export function AskPage({ documentId, folderId }: { documentId?: string; folderI
   const [page, setPage] = useState('')
   const [style, setStyle] = useState<AnswerStyle>('brief')
   const [state, setState] = useState<AskState>({ kind: 'idle' })
+  // La conversación vive solo en el navegador: el servidor no guarda preguntas.
+  const [turns, setTurns] = useState<Turn[]>([])
+  const lastTurn = useRef<HTMLDivElement>(null)
+
+  // Al llegar una respuesta nueva, se lleva a la vista (scrollIntoView no existe en jsdom).
+  useEffect(() => {
+    lastTurn.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+  }, [turns.length])
   const [scope, setScope] = useState<ScopeState>({ kind: 'loading' })
   const [folders, setFolders] = useState<Folder[] | null>(null)
   const [selectedFolder, setSelectedFolder] = useState(folderId ?? '')
@@ -93,8 +120,13 @@ export function AskPage({ documentId, folderId }: { documentId?: string; folderI
             ? { folderId: selectedFolder }
             : undefined,
         style,
+        turns.slice(-HISTORY_TURNS).map(
+          (turn): HistoryTurn => ({ question: turn.question, answer: answerText(turn.response) }),
+        ),
       )
-      setState({ kind: 'answered', response })
+      setTurns((previous) => [...previous, { question: trimmed, response }])
+      setQuestion('')
+      setState({ kind: 'idle' })
     } catch (error) {
       setState({
         kind: 'error',
@@ -204,7 +236,22 @@ export function AskPage({ documentId, folderId }: { documentId?: string; folderI
           <div className="form-footer">
             <span className="hint">
               {question.length}/{MAX_QUESTION_CHARS}
+              {turns.length > 0 && ' · Puedes hacer preguntas de seguimiento («¿y después?»)'}
             </span>
+            {turns.length > 0 && (
+              <button
+                type="button"
+                className="secondary"
+                disabled={loading}
+                onClick={() => {
+                  setTurns([])
+                  setState({ kind: 'idle' })
+                }}
+              >
+                <Icon name="plus" size={16} />
+                Nueva conversación
+              </button>
+            )}
             <button
               type="submit"
               disabled={loading || !question.trim() || !validPage || scopeBlocked}
@@ -216,14 +263,31 @@ export function AskPage({ documentId, folderId }: { documentId?: string; folderI
         </form>
       </section>
 
-      <div aria-live="polite">
+      <div aria-live="polite" className="conversation">
+        {turns.map((turn, index) => (
+          <div
+            key={index}
+            className="turn"
+            ref={index === turns.length - 1 ? lastTurn : undefined}
+          >
+            <p className="turn-question">
+              <Icon name="ask" size={16} />
+              <span>{turn.question}</span>
+            </p>
+            {turn.response.standalone_question && (
+              <p className="hint turn-standalone">
+                Entendida como: «{turn.response.standalone_question}»
+              </p>
+            )}
+            <Answer response={turn.response} />
+          </div>
+        ))}
         {loading && <p className="info">Buscando en los documentos y redactando la respuesta…</p>}
         {state.kind === 'error' && (
           <p className="error" role="alert">
             {state.message}
           </p>
         )}
-        {state.kind === 'answered' && <Answer response={state.response} />}
       </div>
     </div>
   )

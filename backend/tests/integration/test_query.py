@@ -29,6 +29,7 @@ NO_EVIDENCE_BODY = {
     "answer_style": "brief",
     "points": [],
     "points_ordered": False,
+    "standalone_question": None,
 }
 
 

@@ -32,6 +32,7 @@ describe('AskPage', () => {
       answer_style: 'brief',
       points: [],
       points_ordered: false,
+      standalone_question: null,
     }
     const fetchSpy = mockFetch(jsonResponse([]), jsonResponse(answer))
     render(<AskPage />)
@@ -74,6 +75,7 @@ describe('AskPage', () => {
         answer_style: 'brief',
         points: [],
         points_ordered: false,
+        standalone_question: null,
       }),
     )
     render(<AskPage />)
@@ -94,6 +96,7 @@ describe('AskPage', () => {
         answer_style: 'brief',
         points: [],
         points_ordered: false,
+        standalone_question: null,
       }),
     )
     render(<AskPage />)
@@ -137,6 +140,7 @@ describe('AskPage', () => {
         answer_style: 'brief',
         points: [],
         points_ordered: false,
+        standalone_question: null,
       }),
     )
     const { container } = render(<AskPage />)
@@ -158,6 +162,7 @@ describe('AskPage', () => {
       answer_style: 'brief',
       points: [],
       points_ordered: false,
+      standalone_question: null,
     }
     const fetchSpy = mockFetch(jsonResponse(document), jsonResponse(answer))
     render(<AskPage documentId={document.id} />)
@@ -198,6 +203,7 @@ describe('AskPage', () => {
       answer_style: 'brief',
       points: [],
       points_ordered: false,
+      standalone_question: null,
     }
     const fetchSpy = mockFetch(jsonResponse([folder]), jsonResponse(answer))
     render(<AskPage />)
@@ -236,6 +242,7 @@ describe('AskPage', () => {
       insufficient_evidence: false,
       answer_style: 'detailed',
       points_ordered: true,
+      standalone_question: null,
       points: [
         { text: 'Entra en el portal Mi Nimbo.', sources: [1] },
         { text: 'Pide los días con 15 días de antelación <b>ya</b>.', sources: [0, 1] },
@@ -276,6 +283,7 @@ describe('AskPage', () => {
         answer_style: 'detailed',
         points: [{ text: 'Hay 22 días hábiles.', sources: [0] }],
         points_ordered: false,
+        standalone_question: null,
       }),
     )
     const { container } = render(<AskPage />)
@@ -287,5 +295,70 @@ describe('AskPage', () => {
     expect(container.querySelector('ul.points')).not.toBeNull()
     expect(container.querySelector('p.answer')).toBeNull()
     expect(screen.queryByRole('radio', { name: 'Pasos' })).toBeNull()
+  })
+
+  it('envía la conversación en las preguntas de seguimiento y muestra cómo se entendieron', async () => {
+    const first: QueryResponse = {
+      answer: 'Tienes 22 días hábiles.',
+      sources: [SOURCE],
+      insufficient_evidence: false,
+      answer_style: 'brief',
+      points: [],
+      points_ordered: false,
+      standalone_question: null,
+    }
+    const second: QueryResponse = {
+      ...first,
+      answer: 'Con 15 días de antelación.',
+      standalone_question: '¿Con cuánta antelación se piden las vacaciones?',
+    }
+    const fetchSpy = mockFetch(jsonResponse([]), jsonResponse(first), jsonResponse(second))
+    render(<AskPage />)
+
+    await ask('¿Cuántos días de vacaciones tengo?')
+    expect(await screen.findByText('Tienes 22 días hábiles.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Pregunta')).toHaveValue('') // lista para la siguiente
+    await ask('¿Y con cuánta antelación?')
+
+    expect(await screen.findByText('Con 15 días de antelación.')).toBeInTheDocument()
+    // Las dos preguntas y sus respuestas siguen a la vista, en orden.
+    expect(screen.getByText('¿Cuántos días de vacaciones tengo?')).toBeInTheDocument()
+    expect(screen.getByText('Tienes 22 días hábiles.')).toBeInTheDocument()
+    expect(
+      screen.getByText('Entendida como: «¿Con cuánta antelación se piden las vacaciones?»'),
+    ).toBeInTheDocument()
+    expect(JSON.parse(fetchSpy.mock.calls[2][1]?.body as string)).toEqual({
+      question: '¿Y con cuánta antelación?',
+      answer_style: 'brief',
+      history: [
+        { question: '¿Cuántos días de vacaciones tengo?', answer: 'Tienes 22 días hábiles.' },
+      ],
+    })
+  })
+
+  it('«Nueva conversación» borra los turnos y deja de enviar el historial', async () => {
+    const answer: QueryResponse = {
+      answer: 'Respuesta.',
+      sources: [SOURCE],
+      insufficient_evidence: false,
+      answer_style: 'brief',
+      points: [],
+      points_ordered: false,
+      standalone_question: null,
+    }
+    const fetchSpy = mockFetch(jsonResponse([]), jsonResponse(answer), jsonResponse(answer))
+    render(<AskPage />)
+
+    await ask('Primera')
+    await screen.findByText('Respuesta.')
+    await userEvent.click(screen.getByRole('button', { name: 'Nueva conversación' }))
+    expect(screen.queryByText('Primera')).toBeNull()
+    await ask('Otra')
+    await screen.findByText('Respuesta.')
+
+    expect(JSON.parse(fetchSpy.mock.calls[2][1]?.body as string)).toEqual({
+      question: 'Otra',
+      answer_style: 'brief',
+    })
   })
 })

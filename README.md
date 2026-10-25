@@ -326,6 +326,13 @@ servidor descarta los puntos sin una cita válida y, en `detailed`, una segunda 
 comprueba cada afirmación contra el texto de sus fuentes y descarta lo no respaldado
 ([ADR 0005](docs/decisions/0005-formatos-de-respuesta.md)).
 
+**Conversación** (`"history"`): hasta 3 turnos anteriores (`question` y `answer`), que
+guarda el navegador; el servidor no guarda preguntas. Si hay historial, una llamada rápida al
+LLM reescribe la pregunta para que se entienda sola («¿y con cuánta antelación?» → «¿con
+cuánta antelación hay que pedir las vacaciones?») y la búsqueda, la respuesta y la
+verificación usan esa versión, que se devuelve en `standalone_question` y la interfaz muestra
+(«Entendida como: …»). Si la reescritura falla, se usa la pregunta original.
+
 **Preguntas de resumen** («¿de qué trata?», «resume…», «ideas principales», «summarize»):
 la búsqueda por similitud no sirve para ellas, así que se responden con los resúmenes de los
 documentos. Esas fuentes llegan con `source_type: "summary"`, sin página, fragmento ni score
@@ -449,7 +456,8 @@ Metodología, resultados e interpretación en [`docs/rag-evaluation.md`](docs/ra
   error de los documentos fallidos, reintentar y eliminar (a la papelera, con confirmación).
 - **Detalle de documento:** metadatos, estado, resumen generado (con botón para generarlo si
   falta), enlace al PDF original y «Preguntar sobre este documento» (con página opcional).
-- **Preguntar:** a todos los documentos o a una carpeta, en formato breve o detallado (con
+- **Preguntar:** conversación con preguntas de seguimiento («¿y después?»), a todos los
+  documentos o a una carpeta, en formato breve o detallado (con
   los pasos numerados si es un procedimiento); cada punto enlaza a sus fuentes (documento, página y extracto; la página abre el PDF
   en ese punto) y hay un aviso explícito cuando no hay evidencia suficiente.
 - **Papelera:** restaurar, eliminar definitivamente y vaciar, con la fecha de borrado automático.
@@ -515,7 +523,6 @@ Metodología, resultados e interpretación en [`docs/rag-evaluation.md`](docs/ra
   [calibración](docs/rag-evaluation.md#openai-text-embedding-3-small--gpt-6-luna-2026-10-24-umbral-02)).
 - **La búsqueda por palabras clave aporta poco** con preguntas naturales (exige todas las
   palabras); ver [hallazgos de la evaluación](docs/rag-evaluation.md#hallazgos-y-mejoras-posibles).
-- **Sin historial de conversación**: cada pregunta es independiente.
 - **Almacenamiento local**: los archivos viven en un volumen del servidor (S3 en la Fase 8).
 - **La purga de la papelera corre dentro del backend**: si el servidor está apagado, los
   documentos vencidos se borran al volver a arrancarlo. En la Fase 8 sería un trabajo

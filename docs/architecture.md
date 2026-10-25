@@ -73,7 +73,10 @@ sequenceDiagram
 flowchart TD
     Q[Pregunta] --> V{"≤ 1000 caracteres<br/>y no vacía?"}
     V -->|no| E422[422]
-    V -->|sí| SQ{"¿Pregunta de resumen?<br/>(heurística, sin página elegida)"}
+    V -->|sí| RW{"¿Hay conversación<br/>(history)?"}
+    RW -->|sí| RQ["Reescribir la pregunta para que se entienda sola<br/>(LLM, rag-rewrite-v1)"]
+    RW -->|no| SQ
+    RQ --> SQ{"¿Pregunta de resumen?<br/>(heurística, sin página elegida)"}
     SQ -->|sí, y hay resúmenes| CS["Contexto = resúmenes de documentos"]
     SQ -->|no, o sin resúmenes| H["Búsqueda híbrida (opcional: solo un documento o una página)<br/>vectorial (umbral) + palabras (OR + BM25)<br/>fusión RRF"]
     H --> C{"¿Algún fragmento<br/>relevante?"}

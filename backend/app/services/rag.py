@@ -36,6 +36,7 @@ from app.services.llm import LLMError, LLMProvider
 from app.services.prompts import (
     PROMPT_VERSION,
     RERANK_PROMPT_VERSION,
+    REWRITE_PROMPT_VERSION,
     VERIFY_PROMPT_VERSION,
     ContextChunk,
 )
@@ -81,6 +82,8 @@ class RagAnswer:
     # Costo estimado de la consulta (todas las llamadas al LLM y el embedding de la pregunta),
     # para el presupuesto diario.
     cost_usd: float = 0.0
+    # La pregunta reescrita a partir de la conversación (None si no hubo historial o no cambió).
+    standalone_question: str | None = None
     # Afirmaciones descartadas por no tener cita válida o no superar la verificación. Solo
     # para logs y evaluación (cuántas) y para revisar la verificación (cuáles); no sale por la API.
     removed_claims: list[str] = field(default_factory=list)
@@ -176,11 +179,20 @@ def answer_question(
     question: str,
     scope: retrieval.Scope = retrieval.EVERYWHERE,
     style: str = "brief",
+    history: Sequence[tuple[str, str]] = (),
 ) -> RagAnswer:
     """Responde con los documentos, o solo con los de `scope` (carpeta, documento o página),
-    en el formato `style` (brief o detailed)."""
+    en el formato `style` (brief o detailed).
+
+    `history`: (pregunta, respuesta) de los turnos anteriores de la conversación. Si hay, la
+    pregunta se reescribe primero para que se entienda sola («¿y después?» → «¿qué pasó después
+    de…?») y todo lo demás (búsqueda, respuesta, verificación) usa la versión reescrita.
+    """
     started = time.perf_counter()
     usage = _Usage()
+    original_question = question
+    if history:
+        question = _rewrite(llm, settings, question, history, usage)
     attempts: list[list[tuple[ContextChunk, Source]]] = []
     retrieved = 0
     # Con una página concreta la pregunta es sobre esa página, no sobre todo el documento.
@@ -235,7 +247,34 @@ def answer_question(
     cost = _llm_cost(settings, usage) + (
         len(question) / 4 * settings.embedding_price_per_mtok / 1_000_000
     )
-    return replace(answer, considered=considered, removed_claims=removed_claims, cost_usd=cost)
+    return replace(
+        answer,
+        considered=considered,
+        removed_claims=removed_claims,
+        cost_usd=cost,
+        standalone_question=question if question != original_question else None,
+    )
+
+
+def _rewrite(
+    llm: LLMProvider,
+    settings: Settings,
+    question: str,
+    history: Sequence[tuple[str, str]],
+    usage: _Usage,
+) -> str:
+    """La pregunta reescrita, o la original si la reescritura falla o no es válida: sin
+    reescritura la respuesta puede ser peor, pero nunca inventada."""
+    try:
+        rewritten = llm.rewrite_question(question, history)
+    except LLMError:
+        logger.warning("Falló la reescritura de la pregunta de seguimiento; se usa la original")
+        return question
+    usage.add(rewritten.input_tokens, rewritten.output_tokens)
+    candidate = rewritten.question.strip()
+    if not candidate or len(candidate) > settings.max_query_chars:
+        return question
+    return candidate
 
 
 def _select_chunks(
@@ -411,7 +450,7 @@ def _log(
     logger.info(
         "Consulta RAG: %d caracteres, formato=%s, %d recuperados, %d leídos por el LLM, "
         "%d citados, %d afirmaciones descartadas, sin_evidencia=%s, estrategia=%s, modelo=%s, "
-        "prompts=%s/%s/%s, llamadas=%d, tokens=%d/%d, costo~$%.6f, recuperación %.0f ms, "
+        "prompts=%s/%s/%s/%s, llamadas=%d, tokens=%d/%d, costo~$%.6f, recuperación %.0f ms, "
         "LLM %.0f ms",
         len(question),
         style,
@@ -425,6 +464,7 @@ def _log(
         PROMPT_VERSION,
         RERANK_PROMPT_VERSION,
         VERIFY_PROMPT_VERSION,
+        REWRITE_PROMPT_VERSION,
         usage.calls,
         usage.input_tokens,
         usage.output_tokens,

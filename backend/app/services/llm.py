@@ -17,11 +17,13 @@ from app.core.config import Settings, get_settings
 from app.services.openai_errors import is_quota_exhausted
 from app.services.prompts import (
     RERANK_SYSTEM_PROMPT,
+    REWRITE_SYSTEM_PROMPT,
     SUMMARY_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
     VERIFY_SYSTEM_PROMPT,
     ContextChunk,
     build_rerank_message,
+    build_rewrite_message,
     build_summary_message,
     build_user_message,
     build_verify_message,
@@ -56,6 +58,17 @@ class LLMAnswer(BaseModel):
     insufficient_evidence: bool = Field(
         description="true si las fuentes no permiten responder la pregunta"
     )
+
+
+class LLMRewrite(BaseModel):
+    question: str = Field(description="La pregunta reescrita para que se entienda sola")
+
+
+@dataclass(frozen=True)
+class RewriteResult:
+    question: str
+    input_tokens: int
+    output_tokens: int
 
 
 class LLMVerdict(BaseModel):
@@ -128,6 +141,10 @@ class LLMProvider(Protocol):
         self, question: str, claims: Sequence[tuple[str, str, Sequence[ContextChunk]]]
     ) -> VerificationResult: ...
 
+    def rewrite_question(
+        self, question: str, history: Sequence[tuple[str, str]]
+    ) -> RewriteResult: ...
+
     def generate_summary(self, filename: str, chunks: Sequence[ContextChunk]) -> SummaryResult: ...
 
     def rerank(
@@ -178,6 +195,17 @@ class OpenAILLMProvider:
             supported={verdict.id: verdict.supported for verdict in parsed.verdicts},
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+        )
+
+    def rewrite_question(self, question: str, history: Sequence[tuple[str, str]]) -> RewriteResult:
+        parsed, input_tokens, output_tokens = self._parse(
+            REWRITE_SYSTEM_PROMPT,
+            build_rewrite_message(question, history),
+            LLMRewrite,
+            reasoning_effort=self._rerank_reasoning_effort,
+        )
+        return RewriteResult(
+            question=parsed.question, input_tokens=input_tokens, output_tokens=output_tokens
         )
 
     def generate_summary(self, filename: str, chunks: Sequence[ContextChunk]) -> SummaryResult:
@@ -258,6 +286,7 @@ class FakeLLMProvider:
         self.styles: list[str] = []
         self.verify_calls: list[list[tuple[str, str, Sequence[ContextChunk]]]] = []
         self.unsupported: set[str] = set()
+        self.rewrite_calls: list[tuple[str, list[tuple[str, str]]]] = []
 
     def generate_answer(
         self, question: str, context: Sequence[ContextChunk], style: str = "brief"
@@ -285,6 +314,16 @@ class FakeLLMProvider:
                 insufficient_evidence=False,
             )
         return LLMResult(answer=answer, input_tokens=0, output_tokens=0)
+
+    def rewrite_question(self, question: str, history: Sequence[tuple[str, str]]) -> RewriteResult:
+        """Une la pregunta con la anterior: determinista y suficiente para las pruebas."""
+        self.rewrite_calls.append((question, list(history)))
+        previous = history[-1][0] if history else ""
+        return RewriteResult(
+            question=f"{question} ({previous})" if previous else question,
+            input_tokens=0,
+            output_tokens=0,
+        )
 
     def verify(
         self, question: str, claims: Sequence[tuple[str, str, Sequence[ContextChunk]]]

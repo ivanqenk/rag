@@ -70,6 +70,8 @@ export interface QueryResponse {
   points: AnswerPoint[]
   // Los puntos son pasos de un procedimiento: mostrarlos numerados.
   points_ordered: boolean
+  // Cómo se entendió una pregunta de seguimiento (null si no hubo conversación o no cambió).
+  standalone_question: string | null
 }
 
 export interface Usage {

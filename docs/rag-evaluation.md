@@ -5,7 +5,7 @@ inventar datos o no abstenerse cuando debe. Esta evaluación lo mide con un conj
 versionado de documentos y preguntas, para comparar cambios (prompt, fragmentación, umbral,
 modelo) con números y no con impresiones.
 
-## Conjunto de evaluación (`backend/evaluation/dataset.json`, versión `eval-v3`)
+## Conjunto de evaluación (`backend/evaluation/dataset.json`, versión `eval-v4`)
 
 Cinco documentos **ficticios** de una empresa inventada, guardados como texto (los PDF se
 generan al ejecutar; no se versionan binarios):
@@ -18,7 +18,8 @@ generan al ejecutar; no se versionan binarios):
 | `returns_policy.pdf` | en | 2 | Devoluciones, garantía, envíos |
 | `acta_comite_flota.pdf` | es | 1 | Acta de reunión **con un intento de prompt injection** |
 
-31 preguntas de siete tipos (las 25 de `eval-v1` más 6 sobre formatos de respuesta):
+35 preguntas de ocho tipos (las 25 de `eval-v1`, 6 sobre formatos de respuesta y 4 de
+seguimiento con su conversación previa):
 
 | Tipo | Cuántas | Qué comprueba |
 |---|---|---|
@@ -27,6 +28,7 @@ generan al ejecutar; no se versionan binarios):
 | `injection` | 1 | Que la respuesta no obedezca las instrucciones escondidas en el documento |
 | `summary` | 2 | «¿De qué trata…?» / «Resume…» (ver [ADR 0003](decisions/0003-resumen-de-documentos.md)) |
 | `unanswerable` | 5 | Que se abstenga: preguntas del mismo ámbito pero sin respuesta en los documentos (salario, permiso de paternidad, contraseña del wifi, bajas por enfermedad en formato detallado) y una sin relación |
+| `followup` | 3 | Preguntas de seguimiento con la conversación anterior («¿Y con cuánta antelación las tengo que pedir?» tras preguntar por las vacaciones). Una cuarta, sin respuesta, cuenta como `unanswerable` |
 | `grounding` | 5 | Preguntas en formato detallado que invitan a añadir consejos genéricos que no están en los documentos (antivirus, mayúsculas, formularios, policía…). Dos son procedimientos (`expect_ordered`) |
 
 Cada pregunta indica el documento y la página esperados y los datos que debe contener la
@@ -220,13 +222,28 @@ equivalentes a detallada y se sustituyó por la numeración automática.
   inicio de la marcha hacia Tezcuco, fue en 1520.» Se deja la métrica tal cual (esperaba
   abstención) en lugar de cambiar la expectativa después de ver el resultado.
 
+## Conversación (`eval-v4`)
+
+2026-10-24, con la pregunta reescrita a partir de la conversación (`rag-rewrite-v1`):
+
+| Pregunta de seguimiento | Entendida como | Respuesta |
+|---|---|---|
+| «¿Y con cuánta antelación las tengo que pedir?» | «¿Con cuánta antelación tengo que pedir las vacaciones?» | 15 días ✓ |
+| «¿Y me pagan algo por eso?» (tras teletrabajo) | «¿Me pagan algo por trabajar desde casa?» | 30 € al mes ✓ |
+| «¿Y en cuánto tiempo tengo que avisar?» (tras virus) | «¿En cuánto tiempo tengo que avisar de que mi ordenador tiene un virus?» | Menos de 1 hora ✓ |
+| «¿Y cuánto me pagan por ellos?» (tras vacaciones; sin respuesta) | «¿Cuánto me pagan por los 23 días laborables de vacaciones…?» | «El manual indica 23 días pero no especifica cuánto se paga» ✗ (esperaba abstención; no inventa) |
+
+Conjunto completo: respuesta correcta 1.0, abstención correcta 0.833 (por la última), sin
+texto inventado 1.0, mediana 2.4 s, $0.00023 por pregunta.
+
 ## Hallazgos y mejoras posibles
 
 1. **Búsqueda por palabras clave** (resuelto): ver el conjunto del libro. Desde la migración
    `unaccent full text search` tampoco distingue tildes: «pidio» encuentra «pidió» (columna
    calculada con `immutable_unaccent`). Ambos conjuntos siguen al 100 % tras el cambio.
 2. **Las preguntas de resumen dependen de una heurística** de patrones (ADR 0003).
-3. **Los conjuntos son pequeños** (31 + 23 preguntas): sirven para detectar regresiones y
+3. **Los conjuntos son pequeños** (35 + 23 preguntas): sirven para detectar regresiones y
    comparar cambios, no para afirmar una precisión general del sistema.
-4. **Sin historial de conversación**: «¿y después qué pasó?» sigue sin funcionar; el filtro
-   por página cubre el caso de preguntar sobre lo que se está leyendo.
+4. **Conversación** (resuelto): las preguntas de seguimiento se reescriben con los 3 últimos
+   turnos. Cuando la conversación da un dato («23 días»), la respuesta a una pregunta sin
+   respuesta tiende a repetirlo y aclarar lo que falta en lugar de abstenerse.

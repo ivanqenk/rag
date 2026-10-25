@@ -44,6 +44,7 @@ from app.services.llm import (
     LLMProvider,
     LLMResult,
     RerankResult,
+    RewriteResult,
     SummaryResult,
     VerificationResult,
     build_llm_provider,
@@ -96,6 +97,12 @@ class MeteredLLM:
         self.output_tokens += result.output_tokens
         return result
 
+    def rewrite_question(self, question: str, history: list[tuple[str, str]]) -> RewriteResult:
+        result = self._inner.rewrite_question(question, history)
+        self.input_tokens += result.input_tokens
+        self.output_tokens += result.output_tokens
+        return result
+
     def rerank(self, question: str, candidates: list[ContextChunk], top_n: int) -> RerankResult:
         result = self._inner.rerank(question, candidates, top_n)
         self.input_tokens += result.input_tokens
@@ -109,6 +116,8 @@ class QuestionResult:
     type: str
     style: str
     question: str
+    # Cómo se entendió una pregunta de seguimiento (None si no hubo conversación o no cambió).
+    standalone_question: str | None
     answer: str
     points: list[str]
     points_ordered: bool
@@ -279,7 +288,9 @@ def _evaluate_question(
 
     tokens_before = (llm.input_tokens, llm.output_tokens)
     started = time.perf_counter()
-    answer = rag.answer_question(session, embedder, llm, settings, question, scope, style)
+    # Preguntas de seguimiento: la conversación previa, como la enviaría el navegador.
+    history = [(turn[0], turn[1]) for turn in spec.get("history", [])]
+    answer = rag.answer_question(session, embedder, llm, settings, question, scope, style, history)
     latency_ms = (time.perf_counter() - started) * 1000
     input_tokens = llm.input_tokens - tokens_before[0]
     output_tokens = llm.output_tokens - tokens_before[1]
@@ -308,6 +319,7 @@ def _evaluate_question(
         type=spec["type"],
         style=style,
         question=question,
+        standalone_question=answer.standalone_question,
         answer=answer.answer,
         points=[p.text for p in answer.points],
         points_ordered=answer.points_ordered,
