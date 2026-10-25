@@ -236,6 +236,25 @@ equivalentes a detallada y se sustituyó por la numeración automática.
 Conjunto completo: respuesta correcta 1.0, abstención correcta 0.833 (por la última), sin
 texto inventado 1.0, mediana 2.4 s, $0.00023 por pregunta.
 
+### Intento de corregir f04 (2026-10-25, descartado)
+
+Se probaron cuatro variantes, repitiendo cada una dos veces con OpenAI real (≈ $0.13 en
+total). Ninguna mejoró sin romper otra pregunta, así que se mantienen `rag-answer-v4` y
+`rag-rewrite-v1`:
+
+| Variante | f04 | Efecto secundario |
+|---|---|---|
+| Regla 4: «si lo preguntado no aparece, aunque sea el mismo tema, abstente» | ✗ | — |
+| Regla 6 con ejemplo («quién aprueba los 2 días de permiso…») | ✓ | g05 (portátil perdido) se abstiene: deja de aplicar la norma general «cualquier incidente, menos de 1 hora» |
+| La anterior + «si una norma general cubre el caso, aplícala» | ✓ | f03 falla 1 de 2 veces; b20 (ambigua) deduce «1521» en vez de abstenerse |
+| Reescritor sin copiar cifras de respuestas anteriores | ✗ | Ninguno, pero el modelo sigue recordando los 23 días: la causa es la regla 4 (responder la parte conocida), no la reescritura |
+
+Conclusión: abstenerse en f04 y aplicar normas generales (g05, f03) tiran en direcciones
+opuestas con un mismo prompt. La respuesta actual de f04 es verdadera y no inventa nada; se
+prefiere ese fallo de métrica antes que perder respuestas correctas. Para arreglarlo de verdad
+haría falta otro mecanismo (p. ej. que el verificador compruebe que la respuesta contesta *lo
+preguntado*, no solo que lo afirmado está en las fuentes) y un conjunto más grande para medirlo.
+
 ## Hallazgos y mejoras posibles
 
 1. **Búsqueda por palabras clave** (resuelto): ver el conjunto del libro. Desde la migración
