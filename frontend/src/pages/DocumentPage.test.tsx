@@ -69,7 +69,7 @@ describe('DocumentPage', () => {
   })
 
   it('explica cuando el documento no existe', async () => {
-    mockFetch(jsonResponse({ detail: 'Document not found' }, 404))
+    mockFetch(jsonResponse({ detail: 'Documento no encontrado' }, 404))
     render(<DocumentPage id={ID} />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('no existe o fue eliminado')

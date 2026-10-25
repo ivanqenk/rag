@@ -185,7 +185,7 @@ describe('AskPage', () => {
   })
 
   it('no permite preguntar si el documento no existe', async () => {
-    mockFetch(jsonResponse({ detail: 'Document not found' }, 404))
+    mockFetch(jsonResponse({ detail: 'Documento no encontrado' }, 404))
     render(<AskPage documentId="11111111-1111-4111-8111-111111111111" />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('El documento no existe.')

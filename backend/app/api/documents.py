@@ -311,5 +311,5 @@ def _get_active_or_409(repository: DocumentRepository, document_id: UUID) -> Doc
 def _get_or_404(repository: DocumentRepository, document_id: UUID) -> Document:
     document = repository.get(document_id)
     if document is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Documento no encontrado")
     return document

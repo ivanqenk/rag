@@ -110,7 +110,7 @@ def test_get_document_not_found(client: TestClient) -> None:
     response = client.get(f"/api/v1/documents/{UUID(int=0)}")
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "Document not found"}
+    assert response.json() == {"detail": "Documento no encontrado"}
 
 
 def test_get_document_rejects_invalid_id(client: TestClient) -> None:
